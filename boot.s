@@ -1,11 +1,11 @@
 global loader
 extern kernel_main
 global boot_page_directory
-global get_page_dir
 
 extern _kernel_start
 extern _kernel_end
 
+								; tych komentarzy nie napisałem, ale zostawiłem je, bo wyjaśniają co się dzieje
 FLAGS    equ  0x0 				; this is the Multiboot 'flag' field
 MAGIC    equ  0x1BADB002        ; 'magic number' lets bootloader find the header
 CHECKSUM equ -(MAGIC + FLAGS)   ; checksum of above, to prove we are multiboot
@@ -23,11 +23,6 @@ boot_page_directory:
 	dd 0x00000083
 	times (1024 - kernel_page_number) dd 0
 
-;mov ebx, (boot_page_directory - kernel_addr)
-;shl ebx, 12
-;or ebx, 3
-;	mov [boot_page_directory + 1023 * 4], ebx
-
 section .text
 	align 4
 	dd MAGIC
@@ -35,11 +30,13 @@ section .text
 	dd CHECKSUM
 
 loader:
+	; mapowanie ostatniej pozycji katalogu stron do siebie
+	;
 	mov dword ebx, (boot_page_directory - kernel_addr)
 	;shl ebx, 12
 	or ebx, 3
 	mov ecx, (boot_page_directory - kernel_addr)
-	add ecx, 4092
+	add ecx, 1023 * 4
 	mov [ecx], ebx
 	mov eax, ebx
 
@@ -61,6 +58,8 @@ loader:
 higher_half:
 	mov dword [boot_page_directory], 0
 	invlpg [0]
+;	mov ebx, cr3
+;	mov cr3, ebx
 
 	
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
@@ -73,12 +72,6 @@ higher_half:
 .loop:
 	hlt
 	jmp .loop
-
-get_page_dir:
-	mov eax, boot_page_directory
-	ret
-
-; global gdt_flush
 
 section .bss
 align 4096

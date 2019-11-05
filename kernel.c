@@ -49,11 +49,14 @@ typedef struct{
 
 
 unsigned int *boot_page_directory;
-unsigned int *get_page_dir();
 
 #define KERNEL_LOADED_ADDR 0xC0000000
 
+// adres do katalogu stron
 unsigned int *page_dir = 0xFFFFF000;
+
+// pierwsza strona ( jest tutaj tymczasowo, bo chciałem sprawdzić, czy
+//					 działają te strony)
 unsigned int page1[1024] __attribute__((aligned (4096)));
 
 void kernel_main(unsigned int kernel_start, unsigned int kernel_end, unsigned int page_addr){
@@ -68,12 +71,12 @@ void kernel_main(unsigned int kernel_start, unsigned int kernel_end, unsigned in
 		page1_base += 4096;
 	}
 
+
 	unsigned int table0entry = ((unsigned int)page1 - KERNEL_LOADED_ADDR) | 0x03;
 	page_dir[2] = table0entry;
 
-	// invl_pg(0);
-
-	flush_tlb();
+	// flush_tlb();
+	invl_pg(2 << 22);
 
 	serial_init();
 	init_gdt();
@@ -144,6 +147,5 @@ void kernel_main(unsigned int kernel_start, unsigned int kernel_end, unsigned in
 	// 	}
 	// }
 
-	// will be moved to separate file
 	//set_page_directory((unsigned int)(&pd.page_directory) - KERNEL_LOADED_ADDR);
 }

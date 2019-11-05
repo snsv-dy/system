@@ -13,8 +13,11 @@ LARGS=-ffreestanding -O2 -nostdlib -lgcc
 
 OSDIR=isodir/boot/
 
-myos.iso: myos.bin
+myos.iso: myos.bin isodir
 	grub-mkrescue -o myos.iso isodir
+
+isodir: 
+	mkdir isodir 
 
 myos.bin: boot.o kernel.o io.o gdt.o shell.o
 	$(CC) -T $(LINK) $(LARGS) -o myos.bin boot.o io.o kernel.o gdt.o shell.o

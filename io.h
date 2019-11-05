@@ -1,8 +1,12 @@
 #ifndef _IO_H_
 #define _IO_H_
 
+
+
 // wrap for assembly out
 void outb(unsigned short port, unsigned char data);
+
+// wrap for assembly in
 unsigned char inb(unsigned short port);
 
 #define SERIAL_COM1_BASE	0x3F8

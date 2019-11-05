@@ -15,8 +15,9 @@ flush_tlb:
 global invl_pg
 
 invl_pg:
-	mov eax, [esp]
+	pop eax
 	invlpg [eax]
+	push eax
 	ret
 
 global gdt_flush

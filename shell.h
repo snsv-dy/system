@@ -29,6 +29,9 @@ void newline();
 void puts(char *str);
 void putc(char c);
 
+// przewijanie terminala nie działa dobrze,
+//	ale narazie przynajmniej wyświetla
+
 #define SCREEN_WIDTH 80
 #define SCREEN_HEIGHT 25
 
