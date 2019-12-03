@@ -44,39 +44,36 @@ idt_entry IDT[256];
 	IDT[ID].offset_high = (taddr & 0xffff0000) >> 16;
 
 
+#define PICM 0x20 			// master PIC
+#define PICS 0xA0			// slave PIC
+#define PICM_COMMAND PICM
+#define PICM_DATA (PICM + 1)
+#define PICS_COMMAND PICS
+#define PICS_DATA (PICS + 1)
+
+#define PIC_EOI 0x20 		// end of interrupt
+#define PIC_INIT 0x11
+
 void init_idt(){
 	serial_write("initing_idt\n");
-	// extern int irq1();
-	// extern int irq2();
-	// extern int irq3();
-	// extern int irq4();
-	// extern int irq5();
-	// extern int irq6();
-	// extern int irq7();
-	// extern int irq8();
-	// extern int irq9();
-	// extern int irq10();
-	// extern int irq11();
-	// extern int irq12();
-	// extern int irq13();
-	// extern int irq14();
-	// extern int irq15();
+
+	// Remapping interrupt numbers
+	outb(PICM, PIC_INIT);
+    outb(PICS, PIC_INIT);
+    outb(PICM_DATA, 0x20); // offset of master PIC
+    outb(PICS_DATA, 0x28); // offset of slave PIC
+    outb(PICM_DATA, 0x04);
+    outb(PICS_DATA, 0x02);
+    outb(PICM_DATA, 0x01);
+    outb(PICS_DATA, 0x01);
+    outb(PICM_DATA, 0x0);
+    outb(PICS_DATA, 0x0);
+    
 
     SET_IDT_ENTRY(14, page_except);
-
-	// PIC (change later!) (numbers to defines)
-	outb(0x20, 0x11);
-    outb(0xA0, 0x11);
-    outb(0x21, 0x20);
-    outb(0xA1, 40);
-    outb(0x21, 0x04);
-    outb(0xA1, 0x02);
-    outb(0x21, 0x01);
-    outb(0xA1, 0x01);
-    outb(0x21, 0x0);
-    outb(0xA1, 0x0);
-    
-    // 
+    {
+    	SET_IDT_ENTRY(8, double_fault);
+	}
 
     for(int i = 0; i < 8; i++){
     	if(i != 1){
@@ -90,21 +87,6 @@ void init_idt(){
     for(int i = 8; i < 16; i++){
     	SET_IDT_ENTRY(32 + i, irqdefs)
     }
-    // SET_IDT_ENTRY(32, irq1)
-    // SET_IDT_ENTRY(32, irq2)
-    // SET_IDT_ENTRY(32, irq3)
-    // SET_IDT_ENTRY(32, irq4)
-    // SET_IDT_ENTRY(32, irq5)
-    // SET_IDT_ENTRY(32, irq6)
-    // SET_IDT_ENTRY(32, irq7)
-    // SET_IDT_ENTRY(32, irq8)
-    // SET_IDT_ENTRY(32, irq9)
-    // SET_IDT_ENTRY(32, irq10)
-    // SET_IDT_ENTRY(32, irq11)
-    // SET_IDT_ENTRY(32, irq12)
-    // SET_IDT_ENTRY(32, irq13)
-    // SET_IDT_ENTRY(32, irq14)
-    // SET_IDT_ENTRY(32, irq15)
 
     unsigned long idt_addr = (unsigned long)IDT;
     unsigned long idt_ptr[2];
@@ -123,22 +105,29 @@ char key_map[256];
 char char_keys_map[20];
 
 void irqmaster_handler(){
-	outb(0x20, 0x20);
+	outb(PICM_COMMAND, PIC_EOI);
 }
 
 void irqslave_handler(){
-	outb(0xA0, 0x20);
-	outb(0x20, 0x20);
+	outb(PICS_COMMAND, PIC_EOI);
+	outb(PICM_COMMAND, PIC_EOI);
+}
+
+void double_fault_handler(unsigned int err){
+	serial_write(" - DOUBLE FAULT - ");
+	serial_x(err);
+	serial_write("\n");
+	halt();
 }
 
 void page_except_handler(unsigned int vaddr, unsigned int err){
+
 	serial_write("\t\tPAGE_FAULT: ");
 	char buff[20];
 	utoa(err, buff);
 	serial_write(buff);
 	serial_write(", at: ");
-	utoa(vaddr, buff);
-	serial_write(buff);
+	serial_x(vaddr);
 	serial_write("\n");
 	outb(0x20, 0x20);
 }
@@ -198,16 +187,7 @@ void irq1_handler(){ // handler klawiatury
 					}else{
 						for(int k = 0; k < PUNCT_SIZE; k++)
 							if(char_to_put == punct_chars[k]){
-								// serial_write("[KEYBOARD] char to put: ");
-								// serial_putc(char_to_put);
-								// serial_write("\n[KEYBOARD] scancode: ");
-								// serial_putc((scancode / 10) % 10 + '0');
-								// serial_putc(scancode % 10 + '0');
-								// serial_putc('\n');
 								char_to_put = char_keys_map[k + 10];
-								// serial_write("[KEYBOARD] char mapped: ");
-								// serial_putc(char_to_put);
-								// serial_putc('\n');
 								break;
 							}
 					}

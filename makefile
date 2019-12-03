@@ -2,14 +2,14 @@ PREFIX=~/pyts/sys/cross/bin
 TARGET=i686-elf
 
 CC=$(PREFIX)/$(TARGET)-gcc
-CFLAGS=-std=gnu99 -ffreestanding -Wall -Wextra -O2
+CFLAGS=-std=gnu99 -ffreestanding -Wall -Wextra -O2 -g
 
 AS=nasm
-AFLAGS=-felf32
+AFLAGS=-felf32 -g -F dwarf
 
 OBJ=objs
 LINK=linker.ld
-LARGS=-ffreestanding -O2 -nostdlib -lgcc
+LARGS=-ffreestanding -O2 -nostdlib -lgcc -g
 
 OSDIR=isodir/boot/
 
@@ -19,8 +19,10 @@ myos.iso: myos.bin isodir
 isodir: 
 	mkdir isodir 
 
-myos.bin: boot.o kernel.o io.o gdt.o shell.o
-	$(CC) -T $(LINK) $(LARGS) -o myos.bin boot.o io.o kernel.o gdt.o shell.o
+myos.bin: boot.o kernel.o io.o gdt.o shell.o stdio.o memory2.o heap.o
+	$(CC) -T $(LINK) $(LARGS) -o myos.bin boot.o io.o stdio.o kernel.o gdt.o shell.o memory2.o heap.o
+	$(PREFIX)/$(TARGET)-objcopy --only-keep-debug myos.bin myos.sym
+	$(PREFIX)/$(TARGET)-objcopy --strip-debug myos.bin
 	cp myos.bin $(OSDIR)/myos.bin
 
 kernel.o: kernel.c io.h
@@ -41,3 +43,12 @@ io.o: io.s io.c io.h
 	$(AS) $(AFLAGS) -o io1.o io.s
 	$(CC) $(CFLAGS) -o io2.o -c io.c
 	$(PREFIX)/$(TARGET)-ld -relocatable io1.o io2.o -o io.o
+
+stdio.o: stdio.c stdio.h
+	$(CC) $(CFLAGS) -o stdio.o -c stdio.c
+
+memory2.o: memory2.h memory2.c
+	$(CC) $(CFLAGS) -o memory2.o -c memory2.c
+
+heap.o: heap.c heap.h
+	$(CC) $(CFLAGS) -o heap.o -c heap.c	

@@ -53,6 +53,7 @@ int terminal_sanity_check();
 void terminal_input_from_keyboard();
 void terminal_backspace();
 
+
 typedef enum{
 	TERMINAL_SCROLL_DOWN,
 	TERMINAL_SCROLL_UP

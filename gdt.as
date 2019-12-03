@@ -1,5 +1,56 @@
 global flush_tlb
+global set_page_directory
+global enable_paging
 extern serial_write
+extern printf
+
+global get_esp
+
+get_esp:
+	push ebp
+	mov ebp, esp
+
+	mov eax, esp
+
+	mov esp, ebp
+	pop ebp
+
+	ret
+
+set_page_directory:
+	; w cr3 musi znaleść się adres katalogu stron
+	push ebp
+	mov ebp, esp
+
+	mov ecx, [esp + 8]
+	mov cr3, ecx
+
+	mov esp, ebp
+	pop ebp
+
+	ret
+
+fmt:
+	dd "esp: %x", 0x10, 0x0
+
+enable_paging:
+	push ebp
+	mov ebp, esp
+	; 
+	; Włączanie obsługi stron o wielkości 4 Mib
+	;mov ecx, cr4
+	;or ecx, 0x00000010
+	;mov cr4, ecx
+
+	; Ustawianie bitów pg i ;pe
+	mov ecx, cr0
+	or ecx, 0x80000001
+	mov cr0, ecx
+
+	mov esp, ebp
+	pop ebp
+
+	ret
 
 textbuff:
 	dd "Flushing tlb", 10, 0
@@ -7,9 +58,9 @@ textbuff:
 flush_tlb:
 	mov eax, cr3
 	mov cr3, eax
-	push textbuff
-	call serial_write
-	pop eax
+;	push textbuff
+;	call serial_write
+;	pop eax
 	ret
 
 global invl_pg
@@ -84,4 +135,26 @@ page_except:
 
 	popa
 	pop eax
+	pop eax
 	iret
+
+extern double_fault_handler
+global double_fault
+double_fault:
+	pusha
+	call double_fault_handler
+	popa
+	iret
+
+global halt
+halt:
+	hlt
+	jmp halt
+
+;page_except2:
+;	push ebp
+;	mov ebp, esp
+
+
+
+;	pop ebp

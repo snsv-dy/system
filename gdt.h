@@ -3,6 +3,8 @@
 
 #include "io.h"
 #include "shell.h"
+#include "memory2.h"
+#include "stdio.h"
 
 // GDT part
 
@@ -42,6 +44,8 @@ extern int irqdefm();
 extern int irq1();
 extern int irqdefs();
 extern int page_except();
+extern int double_fault();
+extern void halt();
 
 #define KEYBOARD_DATA_PORT 0x60
 

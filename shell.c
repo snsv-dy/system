@@ -37,7 +37,8 @@ void framebuffer_charAt(unsigned char c, int x, int y){
 }
 
 void framebuffer_init(){
-	framebuffer = (uint16_t *)0xC00B8000;
+	// framebuffer = (uint16_t *)0xC00B8000;
+	framebuffer = (uint16_t *)0x000B8000;
 	// framebuffer_color = 8<<4 | 15;
 	framebuffer_color = 15;
 	framebuffer_width = 80;
@@ -111,7 +112,7 @@ void puts(char *str){
 }
 
 void terminal_redraw(){
-	serial_write("drawing\n");
+	// serial_write("drawing\n");
 
 	// for(int i = terminal_begin, c = 0; 
 	for(int i = terminal_begin, c = 0; 
@@ -134,16 +135,16 @@ void terminal_redraw(){
 	// 	}
 	// }
 
-	serial_write("drawing end\n");
-	char buf[25];
-	itoa(terminal_begin, buf);
-	serial_write("[REDRAW] term beg: ");
-	serial_write(buf);
-	serial_write("\n[REDRAW] term end: ");
-	buf[0] = '\0';
-	itoa(terminal_begin, buf);
-	serial_write(buf);
-	serial_write("\n");
+	// serial_write("drawing end\n");
+	// char buf[25];
+	// itoa(terminal_begin, buf);
+	// serial_write("[REDRAW] term beg: ");
+	// serial_write(buf);
+	// serial_write("\n[REDRAW] term end: ");
+	// buf[0] = '\0';
+	// itoa(terminal_begin, buf);
+	// serial_write(buf);
+	// serial_write("\n");
 }
 
 int terminal_sanity_check(){
@@ -151,9 +152,9 @@ int terminal_sanity_check(){
 
 	char buf[24];
 	itoa(terminal_end, buf);
-	serial_write("term end: ");
-	serial_write(buf);
-	serial_write("\n");
+	// serial_write("term end: ");
+	// serial_write(buf);
+	// serial_write("\n");
 	// if(current_char >= SCREEN_WIDTH){
 		// current_char = 0;
 
@@ -167,7 +168,7 @@ int terminal_sanity_check(){
 		}
 
 		if(terminal_end >= TERMINAL_HEIGHT){
-			serial_write("TERMINAL_END >= TERMINAL_HEIGHT\n");
+			// serial_write("TERMINAL_END >= TERMINAL_HEIGHT\n");
 			terminal_end = 0;
 		}
 
@@ -239,9 +240,9 @@ void terminal_puts(char *str){
 	for(int i = 0; str[i] != '\0'; i++){
 		terminal_putc(str[i]);
 	}
-	serial_write("TERM: ");
-	serial_write(str);
-	serial_write("\n");
+	// serial_write("TERM: ");
+	// serial_write(str);
+	// serial_write("\n");
 }
 
 void terminal_enter(){
@@ -287,10 +288,10 @@ void terminal_backspace(){
 			if(terminal_full)
 				terminal_begin--;
 
-			serial_write("[TERM] term end: ");
-			serial_putc(terminal_end / 10 % 10 + '0');
-			serial_putc(terminal_end% 10 + '0');
-			serial_putc('\n');
+			// serial_write("[TERM] term end: ");
+			// serial_putc(terminal_end / 10 % 10 + '0');
+			// serial_putc(terminal_end% 10 + '0');
+			// serial_putc('\n');
 
 			// for(; terminal_lines[terminal_end][current_char] != '\0' && terminal_lines[terminal_end][current_char] != ' '; current_char++);
 
