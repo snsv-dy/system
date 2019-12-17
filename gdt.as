@@ -71,6 +71,12 @@ syscall_handled:
 	mov ebx, [eax + ESP_POS + 4]
 	push ebx
 
+	mov bx, KERNEL_DATA_SEGMENT
+	mov ds, bx
+	mov es, bx
+	mov fs, bx
+	mov gs, bx
+
 	;call load_registers
 	mov edi, [eax]
 	mov esi, [eax + 4]
@@ -104,6 +110,12 @@ user_realm_sc:
 
 	mov ebx, [eax + ESP_POS + 4]
 	push ebx
+
+	mov bx, USER_DATA_SEGMENT
+	mov ds, bx
+	mov es, bx
+	mov fs, bx
+	mov gs, bx
 
 	mov edi, [eax]
 	mov esi, [eax + 4]
@@ -365,6 +377,13 @@ common_timer:
 	mov ebx, [eax + ESP_POS + 4]	; licznik programu ze struktury saved_registers obecnego wątku
 	push ebx
 
+	mov bx, KERNEL_DATA_SEGMENT
+	mov ds, bx
+	mov es, bx
+	mov fs, bx
+	mov gs, bx
+
+
 	push eax
 call irqmaster_handler		; informowanie pic, że przerwanie zostało obsłużone
 	pop eax
@@ -399,6 +418,12 @@ user_realm:
 
 	mov ebx, [eax + ESP_POS + 4]
 	push ebx
+
+	mov bx, USER_DATA_SEGMENT
+	mov ds, bx
+	mov es, bx
+	mov fs, bx
+	mov gs, bx
 
 	push eax
 call irqmaster_handler
