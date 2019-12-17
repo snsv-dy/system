@@ -1,5 +1,4 @@
 #include "memory2.h"
-#define get_page(v_addr, n_pages) get_page_d(v_addr, n_pages, __LINE__, __FILE__);
 // Dzielenie całkowite z zaokrągleniem do góry 
 // #define CEIL(a, b) (((a) + (b) - 1) / (b))
 
@@ -27,14 +26,14 @@ unsigned int check_bit(unsigned int bitmap[], unsigned int pos){
 unsigned int memory_bitmap[PAGE_BITMAP_LENGTH];
 
 unsigned int kernel_directory[1024] __attribute__((aligned(4096)));
+unsigned int *kernel_directory_v[1024];		// wirtualne adresy tabel
+
 unsigned int kernel_page1[1024] __attribute__((aligned(4096)));
 
 
 unsigned int k_virtual_bitmap[PAGE_BITMAP_LENGTH];
 
 struct page_directory_struct kernel_directory_struct;
-struct page_table_list k_page_list;
-struct list_node k_node1;
 
 void *kernel_heap;
 
@@ -42,15 +41,11 @@ unsigned int free_memory;
 unsigned int total_memory;
 
 unsigned int get_phys_addr(struct page_directory_struct *directory, unsigned int v_addr, unsigned int *success){
-	struct list_node *table_node = directory->table_list->head;
 
 	unsigned int pde = v_addr >> 22;
-	unsigned int i = 0;
-	for(; table_node != NULL && i < pde; i++){
-		table_node = table_node->next;
-	}
+	unsigned int *table = directory->directory_v[pde];
 
-	if(table_node == NULL && i < pde){
+	if(table == NULL){
 		if(success != NULL)
 			*success = 0;
 		return 0;
@@ -62,71 +57,71 @@ unsigned int get_phys_addr(struct page_directory_struct *directory, unsigned int
 	unsigned int pte = (v_addr >> 12) & 0x3FF;
 	unsigned int offset = v_addr & 0xFFF;
 
-	return (((unsigned int *)table_node->table_addr)[pte] & 0xFFFFF000) + offset;
+	return (table[pte] & 0xFFFFF000) | offset;
 }
 
-int map_phys_to_virt(struct page_directory_struct *directory, unsigned int phys_addr, unsigned int v_addr){
+int map_phys_to_virt(struct page_directory_struct *directory, unsigned int phys_addr, unsigned int v_addr, unsigned int flags){
 	unsigned int pde = v_addr >> 22;
 	unsigned int pte = (v_addr >> 12) & 0x3FF;
 
-	struct list_node *ttable = directory->table_list->head;
-	for(int i = 0; ttable != NULL && i < pde; i++){
-		ttable = ttable->next;
+
+	unsigned int *table = directory->directory_v[pde];
+
+	if(table == NULL){
+
+		printf("MAP PHYS RETURN 1 %d\n", pde);
+		return 1;
 	}
 
-	if(ttable == NULL)
+	unsigned int found = 0;
+	unsigned int table_phys_addr = get_phys_addr(&kernel_directory_struct, table, &found);
+
+	if(!found){
+		return 2;
+	}
+
+	flags &= 0xFFF;
+
+	directory->directory_addr[pde] = table_phys_addr | PAGE_PRESENT_RW | flags;
+	table[pte] = phys_addr | PAGE_PRESENT_RW | flags;
+	return 0;
+}
+
+int unmap_virt_addr(struct page_directory_struct *directory, unsigned int v_addr, unsigned int flags){
+	unsigned int pde = v_addr >> 22;
+	unsigned int pte = (v_addr >> 12) & 0x3FF;
+
+	unsigned int *table = directory->directory_v[pde];
+
+	if(table == NULL)
 		return 1;
 
 	unsigned int found = 0;
-	unsigned int table_phys_addr = get_phys_addr(directory, ttable->table_addr, &found);
+	unsigned int table_phys_addr = get_phys_addr(&kernel_directory_struct, table, &found);
 
 	if(!found)
 		return 2;
 
-	directory->directory_addr[pde] = table_phys_addr | PAGE_PRESENT_RW;
-	ttable->table_addr[pte] = phys_addr | PAGE_PRESENT_RW;
-	ttable->free_pages--;
+	// flags &= 0xFFF;
+
+	// directory->directory_addr[pde] = table_phys_addr | PAGE_PRESENT_RW | flags;
+	table[pte] = 0;
 
 	return 0;
 }
 
-int unmap_virt_addr(struct page_directory_struct *directory, unsigned int v_addr){
-	unsigned int pde = v_addr >> 22;
-	unsigned int pte = (v_addr >> 12) & 0x3FF;
+int alloc_tables_at(struct page_directory_struct *directory, int start, unsigned int n_tables){
+	if(kernel_heap == NULL || start == -1 || n_tables == 0)
+		return 1;
 
-	struct list_node *ttable = directory->table_list->head;
-	for(int i = 0; ttable != NULL && i < pde; i++){
-		ttable = ttable->next;
+	for(int i = start; i < start + n_tables; i++){
+		if(directory->directory_v[i] != NULL){
+			return 2;
+		}
 	}
-
-	if(ttable == NULL)
-		return 1;
-
-	unsigned int found = 0;
-	unsigned int table_phys_addr = get_phys_addr(directory, ttable->table_addr, &found);
-
-	if(!found)
-		return 2;
-
-	ttable->table_addr[pte] = 0;
-	ttable->free_pages++;
-
-	return 0;
-}
-
-int alloc_tables(struct page_directory_struct *directory, unsigned int n_tables){
-	if(kernel_heap == NULL)
-		return 1;
 
 	unsigned int *table_mem = (unsigned int *)heap_malloc_page_aligned(kernel_heap, n_tables * 0x1000);
 	if(table_mem == NULL){
-		return 2;
-	}
-
-	struct list_node *nodes = (struct list_node *)heap_malloc(kernel_heap, sizeof(struct list_node) * n_tables);
-	if(nodes == NULL){
-		printf("[ALLOC_TABLES] nodes == NULL\n");
-		heap_free(table_mem, n_tables);
 		return 3;
 	}
 
@@ -134,123 +129,289 @@ int alloc_tables(struct page_directory_struct *directory, unsigned int n_tables)
 		for(int j = 0; j < 1024; j++){
 			table_mem[i * 1024 + j] = 0;
 		}
-
-		if(i < n_tables - 1)
-			nodes[i].next = &nodes[i + 1];
-		else
-			nodes[i].next = NULL;
-
-		if(i > 0)
-			nodes[i].prev = &nodes[i - 1];
-		else
-			nodes[i].prev = directory->table_list->tail;
-
-		nodes[i].free_pages = 1024;
-		nodes[i].table_addr = (unsigned int)table_mem + 0x1000 * i;
 	}
 
-	directory->table_list->tail->next = nodes;
-	directory->table_list->tail = &nodes[n_tables - 1];
+	for(int i = 0; i < n_tables; i++)
+		directory->directory_v[start + i] = &table_mem[1024 * i];
 
-	directory->table_list->size += n_tables;
+	directory->num_tables += n_tables;
+
+	return 0;
+}
+int alloc_tables(struct page_directory_struct *directory, unsigned int n_tables){
+	if(kernel_heap == NULL)
+		return 1;
+
+	unsigned int tables_end = 0;
+	while(tables_end < 1024 && directory->directory_v[tables_end] != NULL) tables_end++;
+
+	if(tables_end + n_tables >= 1024)
+		n_tables = 1024 - tables_end;
+	// printf("[ALLOC TABLES] n_tables: %d, tables_end: %d\n", n_tables, tables_end);
+
+	unsigned int *table_mem = (unsigned int *)heap_malloc_page_aligned(kernel_heap, n_tables * 0x1000);
+	if(table_mem == NULL){
+		return 2;
+	}
+
+	for(int i = 0; i < n_tables; i++){
+		for(int j = 0; j < 1024; j++){
+			table_mem[i * 1024 + j] = 0;
+		}
+	}
+
+	for(int i = 0; i < n_tables; i++)
+		directory->directory_v[tables_end + i] = &table_mem[1024 * i];
+
+	directory->num_tables += n_tables;
 
 	return 0;
 }
 
-
-
 // void *get_page(unsigned int n_pages, unsigned int *error){
-void *get_page_d(unsigned int n_pages, unsigned int *error, int line, char* file){
+void *get_page_d(unsigned int n_pages, unsigned int map, unsigned int *error, int line, char* file){
 	
 	unsigned int found = 0;
-	int j = find_block_in_bitmap(memory_bitmap, PAGE_BITMAP_LENGTH, n_pages, &found);
+	unsigned int j = find_block_in_bitmap(memory_bitmap, PAGE_BITMAP_LENGTH, n_pages, &found);
 	
+	if(found != 0){
+		if(error != NULL)
+			*error = 1;
+
+		return NULL;
+	}
+
+	if(map == GET_PAGE_NOMAP){
+		for(int i = 0; i < n_pages; i++){
+			set_bit_in_bitmap(memory_bitmap, j + i);
+		}
+
+		return (void *)(j * 0x1000);
+	}
+
 	found = 0;
 	unsigned int pte = find_block_in_bitmap(k_virtual_bitmap, PAGE_BITMAP_LENGTH, n_pages, &found);
 
 	if(found){
 		if(error != NULL)
-			*error = 1;
+			*error = 2;
 		printf("no v\n");
 		return 0;
 	}
 
-	// znajdowanie wolnej strony w katalogu
-	int pde = pte / 1024;
-	struct list_node *node = kernel_directory_struct.table_list->head;
-
-	unsigned int tables_required = CEIL(n_pages, 1024);
-	int next_mul = pte + 1024 - (pte % 1024);
-	tables_required += next_mul < (pte + n_pages);
-
-	int i = 0;
-	for(i = pde; node != NULL && i < pde + tables_required; i++){
-		node = node->next;
+	int res = map_pages(&kernel_directory_struct, (pte / 1024) << 22 | ((pte % 1024) << 12), j * 0x1000, n_pages, PAGE_PRESENT_RW);
+	if(res != 0){
+		printf("[GET PAGE] map pages res == %d\n", res);
 	}
 
-	// jeżeli brakuje tabel, to trzeba dodać więcej
-	if(kernel_directory_struct.table_list->size < pde + tables_required){
-		int res = alloc_tables(&kernel_directory_struct, tables_required);
-		if(res != 0){
-			printf("[GET PAGE] page not alloced\n");
-			if(error != NULL)
-				*error = 2;
-			return 0;
-		}
-	}
 
-	unsigned int v_addr = (pte / 1024) << 22 | (pte % 1024) << 12;
-	for(int i = 0; i < n_pages; i++, pte++){
-		unsigned int t_addr = (pte / 1024) << 22 | (pte % 1024) << 12;
-
-		int map_stat = map_phys_to_virt(&kernel_directory_struct, (j + i) * 0x1000, t_addr);
-		if(map_stat != 0){
-			if(error != NULL){
-				*error = 3 | map_stat << 8;
-			}
-
-			return 0;
-		}
-
+	for(int i = 0; i < n_pages; i++){
 		set_bit_in_bitmap(memory_bitmap, j + i);
-		set_bit_in_bitmap(k_virtual_bitmap, pte);
 	}
+
+	// znajdowanie wolnej strony w katalogu
+	// struct list_node *node = kernel_directory_struct.table_list->head;
+	// int pde = pte / 1024;
+
+	// // sprawdzanie czy blok stron będzie znajdował się na dwóch tabelach
+	// // w takim przypadku trzeba zwiększyć ilość potrzebnych tabel i w razie czego je zaalokować
+	// unsigned int tables_required = CEIL(n_pages, 1024);
+	// int next_mul = pte + 1024 - (pte % 1024);
+	// tables_required += next_mul < (pte + n_pages);
+
+	// // jeżeli brakuje tabel, to trzeba dodać więcej
+	// if(kernel_directory_struct.num_tables < pde + tables_required){
+	// 	int res = alloc_tables(&kernel_directory_struct, tables_required);
+	// 	if(res != 0){
+	// 		printf("[GET PAGE] page not alloced\n");
+	// 		if(error != NULL)
+	// 			*error = 2;
+	// 		return 0;
+	// 	}
+	// }
+
+
+
+	// unsigned int v_addr = (pte / 1024) << 22 | (pte % 1024) << 12;
+	// for(int i = 0; i < n_pages; i++, pte++){
+	// 	unsigned int t_addr = (pte / 1024) << 22 | (pte % 1024) << 12;
+
+	// 	int map_stat = map_phys_to_virt(&kernel_directory_struct, (j + i) * 0x1000, t_addr, PAGE_PRESENT_RW);
+	// 	if(map_stat != 0){
+	// 		if(error != NULL){
+	// 			*error = 3 | map_stat << 8;
+	// 		}
+
+	// 		return 0;
+	// 	}
+
+	// 	set_bit_in_bitmap(memory_bitmap, j + i);
+	// 	set_bit_in_bitmap(k_virtual_bitmap, pte);
+	// }
 
 	free_memory -= n_pages;
 
 	flush_tlb();
 
+	unsigned int v_addr = (pte / 1024) << 22 | ((pte % 1024) << 12);
+
 	return (void *)v_addr;
 }
 
-int free_page(void *v_addr, unsigned int n_pages){
-	unsigned int uvaddr = (unsigned int)v_addr;
+int map_pages(struct page_directory_struct *directory, void *v_addr, unsigned int phys_start, unsigned int n_pages, unsigned int flags){
+	if(directory == NULL || n_pages == 0)
+		return 1;
 
-	unsigned int pde = uvaddr >> 22;
-	unsigned int pte = (uvaddr >> 12);
+	unsigned int uaddr = v_addr;
 
-	unsigned int found;
-	for(int i = 0; i < n_pages; i++, pte++){
-		found = 0;
-		unsigned int t_addr = (pde + (pte / 1024)) << 22 | (pte % 1024) << 12;
-		unsigned int phys_addr = get_phys_addr(&kernel_directory_struct, (unsigned int)t_addr, &found);
-		if(found != 0){
-			return 1;
+	// znajdowanie wolnej strony w katalogu
+	// struct list_node *node = kernel_directory_struct.table_list->head;
+	int pde = uaddr >> 22;
+	int pte = pde * 1024 + ((uaddr >> 12) & 0x3FF);
+
+	// sprawdzanie czy blok stron będzie znajdował się na dwóch tabelach
+	// w takim przypadku trzeba zwiększyć ilość potrzebnych tabel i w razie czego je zaalokować
+	unsigned int tables_required = CEIL(n_pages, 1024);
+	int next_mul = pte + 1024 - (pte % 1024);
+	tables_required += next_mul < (pte + n_pages);
+
+	unsigned int tables_missing = 0;
+	int missing_start = -1;
+	for(int i = 0; i < tables_required; i++){
+		if(directory->directory_v[pde + i] == NULL){
+			tables_missing++;
+			if(missing_start == -1){
+				missing_start = pde + i;
+			}
 		}
-
-		int map_stat = unmap_virt_addr(&kernel_directory_struct, t_addr);
-		if(map_stat != 0){
-			return 2;
-		}
-
-		clear_bit_in_bitmap(memory_bitmap, pte);
-		clear_bit_in_bitmap(k_virtual_bitmap, pte);
 	}
 
-	free_memory += n_pages;
+	// jeżeli brakuje tabel, to trzeba dodać więcej
+	// if(directory->num_tables < pde + tables_required){
+	if(missing_start != -1){
+		int res = alloc_tables_at(directory, missing_start, tables_missing);
+		if(res != 0){
+			printf("[MAP PAGES] page not alloced: %d\n", res);
+			return 2;
+		}
+	}
+
+	unsigned int bit_p = phys_start / 0x1000;
+	unsigned int bit_v = (pde * 1024) + pte;
+	for(int i = 0; i < n_pages; i++, bit_p++, bit_v++){
+		int map_res = map_phys_to_virt(directory, phys_start + i * 0x1000, uaddr + i * 0x1000, flags);
+		if(map_res != 0){
+			unmap_pages(directory, v_addr, i);
+
+			return 3;
+		}
+
+		// set_bit_in_bitmap(memory_bitmap, bit_p);
+		set_bit_in_bitmap(directory->v_bitmap, bit_v);
+	}
 
 	return 0;
 }
+
+int unmap_pages(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages){
+	if(directory == NULL || n_pages == 0 || directory->directory_addr == NULL || directory->directory_v == NULL || directory->v_bitmap == NULL)
+		return 1;
+
+	// sprawdzanie czy szukane strony są zamapowane
+	unsigned int uaddr = v_addr;
+	unsigned int pde = uaddr >> 22;
+	unsigned int j = (uaddr >> 22) * 1024 + ((uaddr >> 12) & 0x3FF);
+	for(int i = 0; i < n_pages; i++, j++){
+		unsigned int *table = directory->directory_v[j / 1024];
+		if(table[j % 1024] == 0){
+			return 2;
+		}
+	}
+
+	// wszystko ok
+	j = (uaddr >> 22) * 1024 + ((uaddr >> 12) & 0x3FF);
+	for(int i = 0; i < n_pages; i++){
+		if(unmap_virt_addr(directory, uaddr + i * 0x1000, 0) != 0){
+			printf("[UNMAP PAGES] error unmapping\n");
+			return 3;
+		}
+		clear_bit_in_bitmap(directory->v_bitmap, j + i);
+	}
+
+	return 0;
+}
+
+int free_page(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages){
+	if(directory == NULL || n_pages == 0 || directory->directory_addr == NULL || directory->directory_v == NULL || directory->v_bitmap == NULL)
+		return 1;
+	// sprawdzanie czy szukane strony są zamapowane
+	unsigned int uaddr = v_addr;
+	unsigned int pde = uaddr >> 22;
+	unsigned int j = (uaddr >> 22) * 1024 + ((uaddr >> 12) & 0x3FF);
+	for(int i = 0; i < n_pages; i++, j++){
+		unsigned int *table = directory->directory_v[j / 1024];
+		if(table[j % 1024] == 0){
+			return 2;
+		}
+	}
+
+	j = (uaddr >> 22) * 1024 + ((uaddr >> 12) & 0x3FF);
+	unsigned int block_start = get_phys_addr(directory, v_addr, NULL) / 0x1000;
+	if(block_start == 0){
+		printf("[FREE PAGE] block start == 0\n");
+	}
+
+	printf("[FREE PAGE] block start: %d\n", block_start);
+
+	for(int i = 0; i < n_pages; i++){
+		clear_bit_in_bitmap(memory_bitmap, block_start + i);
+	}
+
+	int res = unmap_pages(directory, v_addr, n_pages);
+	if(res != 0){
+		return 3;
+	}
+
+	return 0;
+}
+
+// int free_page(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages){
+// 	if(directory == NULL || npages == 0)
+// 		return 1;
+
+// 	unsigned int uvaddr = (unsigned int)v_addr;
+
+// 	unsigned int pde = uvaddr >> 22;
+// 	unsigned int pte = (uvaddr >> 12) & 0x3FF;
+
+// 	unsigned int found;
+// 	for(int i = 0; i < n_pages; i++, pte++){
+// 		found = 0;
+// 		unsigned int t_addr = (pde + (pte / 1024)) << 22 | (pte % 1024) << 12;
+// 		unsigned int phys_addr = get_phys_addr(directory, (unsigned int)t_addr, &found);
+// 		if(found != 0){
+// 			return 2;
+// 		}
+// 	}
+
+// 	pte = (uvaddr >> 12) & 0x3FF;
+// 	for(int i = 0; i < n_pages; i++, pte++){
+// 		unsigned int t_addr = (pde + (pte / 1024)) << 22 | (pte % 1024) << 12;
+// 		unsigned int phys_addr = get_phys_addr(directory, (unsigned int)t_addr, NULL);
+
+// 		int map_stat = unmap_virt_addr(directory, t_addr, PAGE_PRESENT_RW);
+// 		if(map_stat != 0){
+// 			return 3;
+// 		}
+
+// 		clear_bit_in_bitmap(memory_bitmap, phys_addr / 4096);
+// 		// clear_bit_in_bitmap(k_virtual_bitmap, pte);
+// 	}
+
+// 	free_memory += n_pages;
+
+// 	return 0;
+// }
 
 // void deb(){}
 
@@ -267,12 +428,14 @@ int initialize_memory(unsigned int kernel_start, unsigned int kernel_end, multib
 
 
 	unsigned int last_kernel_page = CEIL(kernel_end, 0x1000);
+	// printf("Last kernel page: %d\n", last_kernel_page);
 	total_memory += last_kernel_page;
 
 	// mapowanie kernela do katalogu stron
 	kernel_directory[0] = (unsigned int)kernel_page1 | 3;
 	for(int i = 1; i < 1024; i++){
 		kernel_directory[i] = 0;
+		kernel_directory_v[i] = 0;
 	}
 
 	for(int i = 0; i < 1024; i++){
@@ -311,40 +474,60 @@ int initialize_memory(unsigned int kernel_start, unsigned int kernel_end, multib
 
 	// inicjowanie listy tabeli stron i struktury katalogu kernela
 	kernel_directory_struct.directory_addr = kernel_directory;
-	kernel_directory_struct.table_list = &k_page_list;
-	kernel_directory_struct.reserve_next = 0;
-	k_page_list.head = &k_node1;
-	k_page_list.tail = &k_node1;
-	k_page_list.size = 1;
+	kernel_directory_struct.directory_v = kernel_directory_v;
+	kernel_directory_struct.num_tables = 1;
+	kernel_directory_v[0] = kernel_page1;
+	kernel_directory_struct.v_bitmap = k_virtual_bitmap;
 
-	k_node1.next = NULL;
-	k_node1.prev = NULL;
-	k_node1.table_addr = kernel_page1;
-	k_node1.free_pages = 1024 - last_kernel_page;
-	
 
 	set_page_directory(kernel_directory);
 	enable_paging();
 
 	unsigned int page_got = 0;
 
-	kernel_heap = get_page(KERNEL_HEAP_PAGES, &page_got);
+	kernel_heap = get_page(KERNEL_HEAP_PAGES, GET_PAGE_MAP, &page_got);
+
+	// printf("kernel heap: %x\n", kernel_heap);
+
+	unsigned int *tabl = kernel_directory_struct.directory_v[(unsigned int)kernel_heap >> 22];
+
+	// serial_write("mem bitmap, before free:\n");
+	// for(int i = 0; i < 1024; i++){
+	// 	serial_x(tabl[i]);
+	// 	serial_write("\n");
+	// }
+
+	// printf("free res: %d\n", free_page(&kernel_directory_struct, kernel_heap, KERNEL_HEAP_PAGES));
+
+	// serial_write("mem bitmap, after free:\n");
+	// for(int i = 0; i < 1024; i++){
+	// 	serial_x(tabl[i]);
+	// 	serial_write("\n");
+	// }
+
+	// printf("kernel_heap: %x, %d\n", kernel_heap, page_got);
 	if(!page_got){
 		heap_init(kernel_heap, 0x1000 * KERNEL_HEAP_PAGES);
 	}
+
+	// printf("heap initialized\n");
 
 	alloc_tables(&kernel_directory_struct, 2);
 	// printf("[ - DEBG - ] last_kernel_page: %d, kend: %x\n", last_kernel_page, kernel_end);
 
 	// alloc_tables(&kernel_directory_struct, 1020);
-	enlarge_heap(kernel_heap, 1024 * 0x1000 + sizeof(struct list_node) * 1024);
+	enlarge_heap(kernel_heap, 512 * 0x1000);
 	// heap_all_info_c(kernel_heap);
 
-	alloc_tables(&kernel_directory_struct, 1021);
+	// kernel nie powinien mieć więcej niż 1GB, więc wydaje mi się, że tyle tabel mu wystarczy
+	alloc_tables(&kernel_directory_struct, 256 - 3);
+	
+	printf("Memory initiated\n");
 
 	return 0;
 }
 
+// success == 0, jeżeli szukanie zakończyło się powodzeniem
 unsigned int find_block_in_bitmap(unsigned int *bitmap, unsigned int bit_length, unsigned int size, unsigned int *success){ 
 	unsigned int start = 0;
 	unsigned int pages_found = 0;

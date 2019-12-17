@@ -19,11 +19,14 @@ myos.iso: myos.bin isodir
 isodir: 
 	mkdir isodir 
 
-myos.bin: boot.o kernel.o io.o gdt.o shell.o stdio.o memory2.o heap.o
-	$(CC) -T $(LINK) $(LARGS) -o myos.bin boot.o io.o stdio.o kernel.o gdt.o shell.o memory2.o heap.o
+myos.bin: boot.o kernel.o io.o gdt.o shell.o stdio.o memory2.o heap.o util.o thread.o doubly_linked_list.o
+	$(CC) -T $(LINK) $(LARGS) -o myos.bin boot.o io.o stdio.o kernel.o gdt.o shell.o memory2.o heap.o util.o thread.o doubly_linked_list.o
 	$(PREFIX)/$(TARGET)-objcopy --only-keep-debug myos.bin myos.sym
 	$(PREFIX)/$(TARGET)-objcopy --strip-debug myos.bin
 	cp myos.bin $(OSDIR)/myos.bin
+
+util.o: util.c util.h
+	$(CC) $(CFLAGS) -o util.o -c util.c	
 
 kernel.o: kernel.c io.h
 	$(CC) $(CFLAGS) -o kernel.o -c kernel.c
@@ -52,3 +55,10 @@ memory2.o: memory2.h memory2.c
 
 heap.o: heap.c heap.h
 	$(CC) $(CFLAGS) -o heap.o -c heap.c	
+
+thread.o: thread.c thread.h
+	$(CC) $(CFLAGS) -o thread.o -c thread.c	
+
+
+doubly_linked_list.o: doubly_linked_list.h doubly_linked_list.c
+	$(CC) $(CFLAGS) -o doubly_linked_list.o -c doubly_linked_list.c	

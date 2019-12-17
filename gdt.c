@@ -1,37 +1,125 @@
 #include "gdt.h"
 
-#define GDT_NUM 5
+#define GDT_NUM 6
 
 gdt_entry gdt_entries[GDT_NUM];
 gdt_ptr gdt_pointer;
 
+tss_entry_t tss_entry;
+unsigned int temp_tss_stack[1024];
 
-void gdt_set(gdt_entry *e, unsigned int base, unsigned int limit, unsigned char access, unsigned char gran);
+#define GDT_TYPE_NORMAL 1
+#define GDT_TYPE_TASK 0
+#define GDT_RING0 0
+#define GDT_RING3 3 
+#define GDT_DATA_SEGMENT 0
+#define GDT_CODE_SEGMENT 1
 
-void init_gdt(){
+// void gdt_set(gdt_entry *e, unsigned int base, unsigned int limit, unsigned char access, unsigned char gran);
+void gdt_set(
+	gdt_entry *e,
+	unsigned int base, 
+	unsigned int limit,
+	unsigned int type,
+	unsigned int privl,
+	unsigned int exec);
+
+gdt_entry *init_gdt(){
 	gdt_pointer.limit = (sizeof(gdt_entry) * GDT_NUM) - 1;
 	gdt_pointer.base = (unsigned int)&gdt_entries;
 
-	gdt_set(gdt_entries, 0, 0, 0, 0);
-	gdt_set(gdt_entries + 1, 0, 0xFFFFFFFF, 0x9A, 0xCF);
-	gdt_set(gdt_entries + 2, 0, 0xFFFFFFFF, 0x92, 0xCF);
-	gdt_set(gdt_entries + 3, 0, 0xFFFFFFFF, 0xFA, 0xCF);
-	gdt_set(gdt_entries + 4, 0, 0xFFFFFFFF, 0xF2, 0xCF);
+	// gdt_set(gdt_entries, 0, 0, 0, 0);
+	// gdt_set(gdt_entries + 1, 0, 0xFFFFFFFF, 0x9A, 0xCF);
+	// gdt_set(gdt_entries + 2, 0, 0xFFFFFFFF, 0x92, 0xCF);
+	// gdt_set(gdt_entries + 3, 0, 0xFFFFFFFF, 0xFA, 0xCF);
+	// gdt_set(gdt_entries + 4, 0, 0xFFFFFFFF, 0xF2, 0xCF);
+	// gdt_set(gdt_entries + 4, 0, 0xFFFFFFFF, 0xF2, 0xCF);
+	// pierwszy element gdt musi być NULLem
+	unsigned char *e0 = &gdt_entries[0];
+	for(int i = 0; i < sizeof(gdt_entry); i++){
+		e0 = 0;
+	}
+	gdt_set(&gdt_entries[1], 0, 0xFFFFF, GDT_TYPE_NORMAL, GDT_RING0, GDT_CODE_SEGMENT);
+	gdt_set(&gdt_entries[2], 0, 0xFFFFF, GDT_TYPE_NORMAL, GDT_RING0, GDT_DATA_SEGMENT);
+	gdt_set(&gdt_entries[3], 0, 0xFFFFF, GDT_TYPE_NORMAL, GDT_RING3, GDT_CODE_SEGMENT);
+	gdt_set(&gdt_entries[4], 0, 0xFFFFF, GDT_TYPE_NORMAL, GDT_RING3, GDT_DATA_SEGMENT);
+
+	// ustawianie tss
+	unsigned int tbase = (unsigned int)&tss_entry;
+	unsigned int tlimit = sizeof(tss_entry);
+
+	gdt_entry *tss = &gdt_entries[5];
+	tss->limit_low = tlimit & 0xFFFF;
+	tss->base_low = tbase & 0xFFFFFF;
+	tss->accessed = 1;
+	tss->read_write = 0;
+	tss->conforming_expand_down = 0;
+	tss->executable = 1;
+	tss->desc_type = GDT_TYPE_TASK;
+	tss->privl = 3;
+	tss->present = 1;
+	tss->always_0 = 0;
+	tss->big = 0;
+	tss->granularity = 0;
+	tss->base_high = (tbase & 0xFF000000) >> 24;
+
+	memset(&tss_entry, 0, sizeof(tss_entry_t));
+	tss_entry.ss0 = 0x10;
+	tss_entry.esp0 = temp_tss_stack + 1024;
+
+	// gdt_set(&gdt_entries[5], 0, 0xFFFFF, GDT_TYPE_TASK, GDT_RING0, GDT_CODE_SEGMENT);
+	// gdt_set(gdt_entries, 0, 0, 0, 0);
+	// gdt_set(gdt_entries + 1, 0, 0xFFFFFFFF, 0x9A, 0xCF);
+	// gdt_set(gdt_entries + 2, 0, 0xFFFFFFFF, 0x92, 0xCF);
+	// gdt_set(gdt_entries + 3, 0, 0xFFFFFFFF, 0xFA, 0xCF);
+	// gdt_set(gdt_entries + 4, 0, 0xFFFFFFFF, 0xF2, 0xCF);
+	// gdt_set(gdt_entries + 4, 0, 0xFFFFFFFF, 0xF2, 0xCF);
 
 	gdt_flush((unsigned int)&gdt_pointer);
+	tss_flush();
+
+	printf("temp tss stack: %x\n", (unsigned int)temp_tss_stack);
+
+	return gdt_entries;
 }
 
-void gdt_set(gdt_entry *e, unsigned int base, unsigned int limit, unsigned char access, unsigned char gran){
-	e->base_low = (base & 0xFFFF);
-	e->base_middle = (base >> 16) & 0xFF;
+void set_kernel_stack(unsigned int stack){
+	tss_entry.esp0 = stack;
+}
+
+void gdt_set(gdt_entry *e, unsigned int base, unsigned int limit,
+	unsigned int type,
+	unsigned int privl,
+	unsigned int exec){
+	e->base_low = (base & 0xFFFFFF);
 	e->base_high = (base >> 24) & 0xFF;
 
 	e->limit_low = (limit & 0xFFFF);
-	e->granularity = (limit >> 16) & 0x0F;
+	e->limit_high = (limit >> 16) & 0xF;
 
-	e->granularity |= gran & 0xF0;
-	e->access = access;
+	e->accessed = 0;
+	e->read_write = 1;
+	e->conforming_expand_down = 0;
+	e->executable = exec & 1;
+	e->desc_type = type & 1;
+	e->privl = privl & 3;
+	e->present = 1;
+	// e->available = 1;
+	e->always_0 = 0;
+	e->big = 1;
+	e->granularity = 1; // adresowanie ze stronami 4kib
 }
+// void gdt_set(gdt_entry *e, unsigned int base, unsigned int limit, unsigned char access, unsigned char gran){
+// 	e->base_low = (base & 0xFFFF);
+// 	e->base_middle = (base >> 16) & 0xFF;
+// 	e->base_high = (base >> 24) & 0xFF;
+
+// 	e->limit_low = (limit & 0xFFFF);
+// 	e->granularity = (limit >> 16) & 0x0F;
+
+// 	e->granularity |= gran & 0xF0;
+// 	e->access = access;
+// }
 
 idt_entry IDT[256];
 
@@ -74,6 +162,18 @@ void init_idt(){
     {
     	SET_IDT_ENTRY(8, double_fault);
 	}
+	{
+		SET_IDT_ENTRY(13, gpf);
+	}
+	{
+		unsigned int sc_id = 80;
+		unsigned int scaddr = (unsigned int)syscall;
+		IDT[sc_id].offset_low = scaddr & 0xFFFF;
+		IDT[sc_id].offset_high = (scaddr & 0xFFFF0000) >> 16;
+		IDT[sc_id].selector = 0x8;
+		IDT[sc_id].zero = 0;
+		IDT[sc_id].type_attr = 0xE | (1 << 7) | (3 << 5);
+	}
 
     for(int i = 0; i < 8; i++){
     	if(i != 1){
@@ -88,6 +188,11 @@ void init_idt(){
     	SET_IDT_ENTRY(32 + i, irqdefs)
     }
 
+    // Ustawianie przerwania timera
+    {
+    	SET_IDT_ENTRY(32, timer_interrupt);
+    }
+
     unsigned long idt_addr = (unsigned long)IDT;
     unsigned long idt_ptr[2];
     idt_ptr[0] = (sizeof(idt_entry) * 256) + ((idt_addr & 0xffff) << 16);
@@ -95,7 +200,9 @@ void init_idt(){
 
     load_idt((unsigned long)idt_ptr);
 
-    outb(0x21, 0xFD); // Enabling keyboard (CHANGE!!!)
+    // Tutaj jest maska sprzętowych przerwań
+    outb(0x21, 0xFC); // Enabling keyboard (CHANGE!!!)
+    // outb(0x21, 0xFD); // Enabling keyboard (CHANGE!!!)
     init_key_map();
 
 	serial_write("idt inited\n");
@@ -120,7 +227,13 @@ void double_fault_handler(unsigned int err){
 	halt();
 }
 
+#include "thread.h"
+
 void page_except_handler(unsigned int vaddr, unsigned int err){
+	printf("Page fault: \n");
+
+	thread_t *th = get_current_thread();
+	printf("thread: %d\n", th->pid);
 
 	serial_write("\t\tPAGE_FAULT: ");
 	char buff[20];
@@ -129,7 +242,135 @@ void page_except_handler(unsigned int vaddr, unsigned int err){
 	serial_write(", at: ");
 	serial_x(vaddr);
 	serial_write("\n");
-	outb(0x20, 0x20);
+	halt();
+	//outb(0x20, 0x20);
+
+}
+
+void gpf_handler(unsigned int err){
+	printf(" GPF\n");
+	serial_write("	- GPF - \nat: ");
+	serial_x(err);
+	serial_write("\n");
+	halt();
+}
+
+
+#define TIME_INTERVAL 100
+#define PIT_CHANNEL0 0x40
+#define PIT_CONFIGURE 0x43
+#define PIT_MODE3 0x36
+void init_pit(){
+	int divisor = 1193182 / TIME_INTERVAL;
+
+	outb(PIT_CONFIGURE, PIT_MODE3);
+
+	outb(PIT_CHANNEL0, (char)(divisor & 0xFF));
+	outb(PIT_CHANNEL0, (char)((divisor >> 8) & 0xFF));
+	serial_write("initing pit\n");
+}
+
+// proc_state *timer_handler(unsigned int esp, unsigned int eip){
+// 	queue_dec()	
+
+// 	thread_t *cur_thread = get_current_thread();
+// 	proc_state *cur_state = NULL;
+// 	extern unsigned int do_switching;
+// 	if(do_switching && cur_thread != NULL){
+// 	cur_state = &cur_thread->state;
+
+// 	if(do_switching && get_current_thread() != NULL){
+// 		proc_state *ret = switch_task(esp, eip);
+// 		if(ret != NULL)
+// 			cur_state = ret;
+// 	}
+
+// 	ticks_sience_start++;
+// 	if(ticks_sience_start % TIME_INTERVAL == 0);
+// 		// sekunda mineła
+// 	}
+// 	outb(0x20, 0x20);
+
+// 	return cur_state;
+// }
+
+#define SYSCALL_OUTS 0
+#define SYSCALL_GETS 1
+#define SYSCALL_SWITCH_TASK 2
+#define SYSCALL_SLEEP 3
+
+// extern void switch_task();
+// prog_esp to wskaźnik stosu, programu/wątku który wykonał syscall'a 
+// używany po to aby można było odczytać więcej parametrów jeśli potrzeba
+void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int prog_esp, unsigned int esp, unsigned int eip){
+	// printf("[SYSCALL] param1: %x, param2: %x, eip: %x\n", param1, param2, prog_eip);
+	serial_write("[SYSCALL] it's wednesday\nparam1: ");
+	serial_x(param1);
+	serial_write("\nparam2: ");
+	serial_x(param2);
+	serial_write("\nprog_esp: ");
+	serial_x(prog_esp);
+	serial_write("\nesp: ");
+	serial_x(esp);
+	serial_write("\neip: ");
+	serial_x(eip);
+	serial_write("\ncr3: ");
+	extern get_cr3();
+	serial_x(get_cr3());
+	serial_write("\n");
+	serial_write("\n");
+	struct registers_struct *cur_registers = &(get_current_thread()->saved_registers);
+	if(cur_registers != NULL){
+		cur_registers->eip = eip;
+		cur_registers->esp = esp;
+		// printf("[SYSCALL] eip: %x, esp: %x\n", cur_registers->eip, cur_registers->esp);
+	}else{
+		printf("[SYSCALL] CUR REGISTERS == NULL\n");
+	}
+	void *ret = cur_registers;
+	// printf("Returned state: \n");
+	// display_state(ret);
+	switch(param2){
+		case SYSCALL_OUTS:
+		{
+			// printf("SYSCAL PRINTFING\n");
+			// printf("[SYSCALL] %s\n", (char *)param1);
+
+			// printf("[SYSCALL] Outs\n");
+			printf("%s\n", (char *)param1);
+
+			// printf((char *)param1);
+		}
+		break;
+		case SYSCALL_SWITCH_TASK:
+		{
+			printf("[SYSCALL] Switching tasks\n");
+			// printf("ESP: %x\n", esp);
+			// printf("EIP: %x\n", eip);
+			ret = switch_task(esp, eip);
+		}
+		break;
+		case SYSCALL_SLEEP:
+		{
+			ret = sleep_task(esp, eip, param1);
+			// ret = switch_task(esp, eip);
+		}
+		break;
+	}
+	serial_write("After eip: ");
+	serial_x(((struct registers_struct *)ret)->eip);
+	serial_write("\nAfter esp: ");
+	serial_x(((struct registers_struct *)ret)->esp);
+	serial_write("\ncr3: ");
+	serial_x(get_cr3());
+	serial_write("\n");
+	serial_write("--------------\n");
+
+	// struct registers_struct *after = (struct registers_struct *)ret;
+	// printf("cur regs: %x, x: %x\n", cur_registers->privl, *((unsigned int *)((char *)ret + 40)));
+	// printf("ret esp: %x, ret eip: %x, ret pri: %d\n", *((unsigned int *)((char *)ret + 32)), *((unsigned int *)((char *)ret + 36)), *((unsigned int *)((char *)ret + 40)));
+
+	return ret;
 }
 
 #define KEY_CTRL 0
