@@ -19,7 +19,15 @@ get_eip:
 	pop eax
 	jmp eax
 
+global disable_interrupts
+disable_interrupts:
+	cli
+	ret
 
+global enable_interrupts
+enable_interrupts:
+	sti
+	ret
 
 extern syscall_handler
 global syscall_handled
@@ -86,7 +94,6 @@ syscall_handled:
 	mov edx, [eax + 20]
 	mov ecx, [eax + 24]
 	mov eax, [eax + 28]
-
 	iret
 
 user_realm_sc:
@@ -329,8 +336,8 @@ timer_interrupt:
 	call get_switching
 	cmp dword eax, 0x0 		; sprawdzanie, czy wielowątkowość została zainicjowana
 	pop eax
-	jne continue_timer
-	call irqmaster_handler
+	jne continue_timer		; jeżeli tak to przewanie jest obsługiwane przez timer_handler
+	call irqmaster_handler	; jeżelie nie to przewanie jest kończone i wątek się nie zmienia
 	popad
 	iret
 
@@ -441,9 +448,9 @@ call irqmaster_handler
 	iret
 
 irq1:
-	pusha
+	pushad
 	call irq1_handler
-	popa
+	popad
 	iret
 
 extern gpf_handler

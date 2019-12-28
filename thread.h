@@ -5,6 +5,7 @@
 #include "heap.h"
 #include "util.h"	// CEIL
 #include "doubly_linked_list.h"
+#include <stdarg.h>
 
 typedef struct{
 	unsigned int magic;							//	0
@@ -49,6 +50,14 @@ typedef struct{
 #define THREAD_STATUS_ACTIVE 1
 #define THREAD_STATUS_WAITING 2
 
+enum Queue{
+	THREAD,
+	SLEEP,
+	DEATH,
+	IO,
+	WAIT
+};
+
 struct registers_struct{
 	unsigned int edi;
 	unsigned int esi;
@@ -64,29 +73,45 @@ struct registers_struct{
 	unsigned int privl;	// to nie jest rejestr, ale jest używane w 
 };
 
-typedef struct{
+#define THREAD_STACK_SIZE (8192 * 1024)
+#define MAX_THREADS 127	// 1GB / 8Mb - 1, -1 bo trzeba odjąć stos wątku głównego
+
+typedef struct thread_t_struct{
 	struct page_directory_struct *directory;
 
 	unsigned int stack;	// wskaźnik stosu
 	unsigned int code;	// wskaźnik na początek kodu
 
-	unsigned int pid;
+	unsigned int pid;	// pid FFFFFFFF, to wątek widmo, nie posiada katalogu, ale nie został usunięty dla zachowania poprawności kolejki śpiących wątków
 	unsigned int status;
+	enum Queue queue;
+
 	int sleep_pos;	// pozycja w kolejce sleepów (nie inicjowane do czasu wywołania sleepa)
+					// albo adres bufora wejścia wątku
+					// albo id semafora nienazwanego na którym czeka wątek
 	struct registers_struct saved_registers;
 	unsigned int were_registers_saved;	// czy rejestry były zapisywane (nie będą w przypadku kiedy wątek będzie uruchamiany poraz pierwszy)
+
+	struct thread_t_struct *parent; // jeżeli parent != NULL to ten wątek został stworzony przez thread_create, jeżeli parent == NULL wątek jest samodzielny
+	
+	struct thread_t_struct **children;
+	unsigned int nchilds;
+	unsigned int children_capacity;
 } thread_t;
 
 void display_state(proc_state *st);
 
+int init_stack(thread_t *thread, int thread_num);
 unsigned int *return_int();
 void thread_start(thread_t *thread);
-thread_t *thread_setup(elf_header *elf, unsigned int *error);
+int free_whole_program(struct page_directory_struct *directory);
+thread_t *thread_setup(elf_header *elf, int pid, unsigned int *error);
 thread_t *get_current_thread();
 struct registers_struct *switch_task(unsigned int saved_eip, unsigned int saved_esp);
 void queue_thread(thread_t *t);
 void put_thread_to_sleep(thread_t *thread, int how_long);
 struct registers_struct *timer_handler(unsigned int esp, unsigned int eip);
+int get_next_pid();
 void save_registers(
 	unsigned int edi,
 	unsigned int esi,
@@ -98,5 +123,50 @@ void save_registers(
 	unsigned int eax
 	);
 // global save_registers;
+
+struct page_directory_struct *clone_directory(struct page_directory_struct *src, unsigned int *error);
+
+enum spawn_type{
+	CREATE_THREAD,		// dodaje nowy stos w tym samym katalogu stron, i zaczyna wykonywanie od funkcji przekazanej w parametrze
+	CREATE_PROCESS		// ładuje program z pamięci 
+};
+
+typedef struct {
+	thread_t *parent;
+	unsigned int new_pid;
+
+	enum spawn_type type;
+
+	// dane do nowego wątku
+	void *thread_ptr;
+	unsigned int eip; // wskaźnik na funckję wywołującą docelową funkcję
+	void *(*func)(void *param);
+	void *param;
+
+} spawn_t;
+
+int push_spawn(spawn_t *t);
+void thread_spawner();
+void thread_killer();
+
+int push_io(thread_t *t);
+thread_t *pop_io();
+
+// struktura semafora nienazwanego
+typedef struct{
+	int counter;
+	int id;
+	char *name;
+} sem_t;
+
+thread_t *get_waiting();
+int push_wait(thread_t *t);
+
+// Definicje używane do określenia na co wątek czeka w kolejce czekających wątków
+#define WAIT_SEM	0	// czeka na semafora
+#define WAIT_PROC	1	// czeka na zakończenie innego wątku
+
+extern void disable_interrupts();
+extern void enable_interrupts();
 
 #endif

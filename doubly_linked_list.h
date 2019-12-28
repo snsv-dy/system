@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include "stdio.h"
+#include "heap.h"
 // extern thread_t;
 #define LIST_TYPE void *
 
@@ -15,7 +16,8 @@ struct lnode{
 	
 	LIST_TYPE value;
 	
-	unsigned int used;
+	unsigned int used : 1;
+	unsigned int membeg : 1;
 };
 
 struct list_info{
@@ -34,6 +36,12 @@ struct list_info{
 struct lnode *find_free_block(struct list_info *list);
 int push_back(struct list_info *list, LIST_TYPE value);
 LIST_TYPE pop_front(struct list_info *list);
+LIST_TYPE pop_back(struct list_info *list);
+LIST_TYPE remove_item_by_getter(struct list_info *list, int num);
+LIST_TYPE remove_item(struct list_info *list, LIST_TYPE elem);
+int enlarge_list(struct list_info *list);
+int destroy_list(struct list_info *list);
+
 struct list_info *init_list(void *memory, unsigned int size);
 
 // wstawia element do koleji w taki sposób, że suma wszystkich poprzednich elementóœ i jego jest równa num

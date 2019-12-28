@@ -1,5 +1,87 @@
 #include "doubly_linked_list.h"
 
+LIST_TYPE remove_item(struct list_info *list, LIST_TYPE elem){
+	if(list == NULL)
+		return NULL;
+	
+	struct lnode *t = list->head;
+	while(t != NULL && t->value != elem){
+		t = t->nextl;
+	}
+	
+	if(t == NULL){
+		return NULL;
+	}
+		
+	t->used = 0;
+	list->free_nodes++;
+	
+	if(t == list->head && list->head == list->tail){
+		list->head = NULL;
+		list->tail = NULL;
+		return t->value;
+	}
+		
+	if(t == list->head){
+		t->nextl->prevl = NULL;
+		list->head = t->nextl;
+		return t->value;
+	}else if(t == list->tail){
+		t->prevl->nextl = NULL;
+		list->tail = t->prevl;
+		return t->value;
+	}
+	
+	t->prevl->nextl = t->nextl;
+	t->nextl->prevl = t->prevl;
+	
+	return t->value;
+}
+
+LIST_TYPE remove_item_by_getter(struct list_info *list, int num){
+	if(list == NULL)
+		return NULL;
+	
+	// printf("[DLL REMOVE] removing: %d\n", num);
+
+
+	// printf("[DLL REMOVE] loop: ");
+	struct lnode *t = list->head;
+	while(t != NULL && GET_VALUE(t->value) != num){
+		// printf("%d ", GET_VALUE(t->value));
+		t = t->nextl;
+	}
+	// printf("[DLL REMOVE] found: %x\n", t);
+	
+	if(t == NULL){
+		// printf("[DLL REMOVE] NULL\n");
+		return NULL;
+	}
+		
+	t->used = 0;
+	list->free_nodes++;
+	
+	if(t == list->head && list->head == list->tail){
+		list->head = NULL;
+		list->tail = NULL;
+		return t->value;
+	}
+		
+	if(t == list->head){
+		t->nextl->prevl = NULL;
+		list->head = t->nextl;
+		return t->value;
+	}else if(t == list->tail){
+		t->prevl->nextl = NULL;
+		list->tail = t->prevl;
+		return t->value;
+	}
+	
+	t->prevl->nextl = t->nextl;
+	t->nextl->prevl = t->prevl;
+	
+	return t->value;
+}
 struct lnode *find_free_block(struct list_info *list){
 	struct lnode *t = LIST_first_block(list);
 	struct lnode *last = t;
@@ -9,8 +91,11 @@ struct lnode *find_free_block(struct list_info *list){
 	}
 	
 	if(t == NULL){
-		//enlarge_list
-		return NULL;
+		int res = enlarge_list(list);
+		if(res != 0){
+			return NULL;
+		}
+		return find_free_block(list);
 	}
 	
 	list->free_nodes--;
@@ -18,6 +103,67 @@ struct lnode *find_free_block(struct list_info *list){
 	return t;
 }
 
+#define LIST_SIZE 5
+int enlarge_list(struct list_info *list){
+	if(list == NULL || list->tail == NULL)
+		return 1;
+		
+	struct lnode *last = list->tail;
+	
+	char *mem = (char *)kmalloc(sizeof(struct lnode) * LIST_SIZE );
+	if(mem == NULL){
+		return 2;
+	}
+		
+	int nnodes = LIST_SIZE;
+	
+	struct lnode *t = (struct lnode *)mem;
+	for(int i = 0; i < nnodes; i++){
+		if(i > 0)
+			t[i].prev = &t[i - 1];
+		else
+			t[i].prev = last;
+		if(i < nnodes - 1)
+			t[i].next = &t[i + 1];
+		else
+			t[i].next = NULL;
+			
+		t[i].nextl = NULL;
+		t[i].prevl = NULL;
+			
+		t[i].used = 0;
+		t[i].value = (LIST_TYPE)0;
+		t[i].membeg = 0;
+	}
+	t[0].membeg = 1;
+	
+	last->next = t;
+	
+	list->free_nodes += nnodes;
+	list->nodes += nnodes;
+	
+	
+	// printf("list_enlarged, free_nodes: %d, total nodes: %d\n", list->free_nodes, list->nodes);
+	
+	return 0;
+}
+
+
+int destroy_list(struct list_info *list){
+	struct lnode *t = list->tail;
+	while(t != NULL){
+		if(t->membeg){
+			struct lnode *to_free = t;
+			t = t->prev;
+			kfree(to_free);
+			// printf("freed list\n");
+		}else{
+			t = t->prev;
+		}
+	}
+	
+	return 0;
+}
 
 int push_back(struct list_info *list, LIST_TYPE value){
 	if(list == NULL){
@@ -66,6 +212,27 @@ LIST_TYPE pop_front(struct list_info *list){
 	list->head = t->nextl;
 	list->head->prevl = NULL;
 	
+	return t->value;
+}
+
+LIST_TYPE pop_back(struct list_info *list){
+	if(list == NULL || list->head == NULL){
+		return 0;
+	}
+
+	struct lnode *t = list->tail;
+	t->used = 0;
+
+	list->free_nodes++;
+
+	if(list->head == list->tail){
+		list->head = list->tail = NULL;
+		return t->value;
+	}
+
+	list->tail = t->prevl;
+	t->prevl->nextl = NULL;
+
 	return t->value;
 }
 

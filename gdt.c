@@ -270,55 +270,46 @@ void init_pit(){
 	serial_write("initing pit\n");
 }
 
-// proc_state *timer_handler(unsigned int esp, unsigned int eip){
-// 	queue_dec()	
 
-// 	thread_t *cur_thread = get_current_thread();
-// 	proc_state *cur_state = NULL;
-// 	extern unsigned int do_switching;
-// 	if(do_switching && cur_thread != NULL){
-// 	cur_state = &cur_thread->state;
-
-// 	if(do_switching && get_current_thread() != NULL){
-// 		proc_state *ret = switch_task(esp, eip);
-// 		if(ret != NULL)
-// 			cur_state = ret;
-// 	}
-
-// 	ticks_sience_start++;
-// 	if(ticks_sience_start % TIME_INTERVAL == 0);
-// 		// sekunda mineła
-// 	}
-// 	outb(0x20, 0x20);
-
-// 	return cur_state;
-// }
+// struktura z parametrami do tworzenia wątku funkcją create_thread
+typedef struct thread_pck{
+	void *thread;
+	void *(*func)(void *);
+	void *param;
+	void (*wrap_func)(struct thread_pck *);
+} thread_pack;
 
 #define SYSCALL_OUTS 0
 #define SYSCALL_GETS 1
 #define SYSCALL_SWITCH_TASK 2
 #define SYSCALL_SLEEP 3
+#define SYSCALL_CREATE_THREAD 4
+#define SYSCALL_EXIT 5
+#define SYSCALL_SEM_WAIT 6
+#define SYSCALL_SEM_POST 7
+#define SYSCALL_START_PROCESS 8
+#define SYSCALL_WAIT_FOR_FINISH 9
+
 
 // extern void switch_task();
-// prog_esp to wskaźnik stosu, programu/wątku który wykonał syscall'a 
-// używany po to aby można było odczytać więcej parametrów jeśli potrzeba
+// prog_esp to trzeba wywalić bo jest do niczego nie potrzebny
 void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int prog_esp, unsigned int esp, unsigned int eip){
 	// printf("[SYSCALL] param1: %x, param2: %x, eip: %x\n", param1, param2, prog_eip);
-	serial_write("[SYSCALL] it's wednesday\nparam1: ");
-	serial_x(param1);
-	serial_write("\nparam2: ");
-	serial_x(param2);
-	serial_write("\nprog_esp: ");
-	serial_x(prog_esp);
-	serial_write("\nesp: ");
-	serial_x(esp);
-	serial_write("\neip: ");
-	serial_x(eip);
-	serial_write("\ncr3: ");
-	extern get_cr3();
-	serial_x(get_cr3());
-	serial_write("\n");
-	serial_write("\n");
+	// serial_write("[SYSCALL] it's wednesday\nparam1: ");
+	// serial_x(param1);
+	// serial_write("\nparam2: ");
+	// serial_x(param2);
+	// serial_write("\nprog_esp: ");
+	// serial_x(prog_esp);
+	// serial_write("\nesp: ");
+	// serial_x(esp);
+	// serial_write("\neip: ");
+	// serial_x(eip);
+	// serial_write("\ncr3: ");
+	// extern get_cr3();
+	// serial_x(get_cr3());
+	// serial_write("\n");
+	// serial_write("\n");
 	struct registers_struct *cur_registers = &(get_current_thread()->saved_registers);
 	if(cur_registers != NULL){
 		cur_registers->eip = eip;
@@ -333,38 +324,172 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 	switch(param2){
 		case SYSCALL_OUTS:
 		{
-			// printf("SYSCAL PRINTFING\n");
-			// printf("[SYSCALL] %s\n", (char *)param1);
+			printf((char *)param1);
+		}
+		break;
+		case SYSCALL_GETS:
+		{
+			ret = switch_task(esp, eip);
 
-			// printf("[SYSCALL] Outs\n");
-			printf("%s\n", (char *)param1);
-
-			// printf((char *)param1);
+			extern struct list_info *thread_queue;
+			thread_t *cur_thread = pop_back(thread_queue);
+			*((unsigned int *)&(cur_thread->sleep_pos)) = param1;
+			push_io(cur_thread);
 		}
 		break;
 		case SYSCALL_SWITCH_TASK:
 		{
-			printf("[SYSCALL] Switching tasks\n");
-			// printf("ESP: %x\n", esp);
-			// printf("EIP: %x\n", eip);
 			ret = switch_task(esp, eip);
 		}
 		break;
 		case SYSCALL_SLEEP:
 		{
 			ret = sleep_task(esp, eip, param1);
-			// ret = switch_task(esp, eip);
+		}
+		break;
+		case SYSCALL_CREATE_THREAD:
+		{
+			spawn_t *spawn = (spawn_t *)kmalloc(sizeof(spawn_t));
+			if(spawn == NULL){
+				printf("[SYSCALL F] no memory for spawn_t\n");
+			}else{
+				thread_pack *pack = (thread_pack *)param1;
+
+				spawn->parent = get_current_thread();
+				spawn->new_pid = get_next_pid();
+
+				spawn->parent->saved_registers.eax = spawn->new_pid; // wartość zwracana z syscall'a (hopefully)
+				spawn->type = CREATE_THREAD;
+
+				spawn->eip = pack->wrap_func;
+				spawn->thread_ptr = pack->thread;
+				spawn->func = pack->func;
+				spawn->param = pack->param;
+
+				int ret = push_spawn(spawn);
+				if(ret != 0){
+					printf("[SYSCALL F] pushing fork failed: %d\n", ret);
+					spawn->parent->saved_registers.eax = -1;
+				}
+			}
+		}
+		break;
+		case SYSCALL_START_PROCESS:
+		{
+			spawn_t *spawn = (spawn_t *)kcalloc(1, sizeof(spawn_t));
+			if(spawn == NULL){
+				printf("[SYSCALL CP] no memory for spawn_t\n");
+			}else{
+				int id = *(int *)&param1;
+				// printf("[SYSCALL CP] id: %d\n", id);
+				spawn->param = (void *)id;
+				spawn->type = CREATE_PROCESS;
+				spawn->new_pid = get_next_pid();
+
+				int ret = push_spawn(spawn);
+				if(ret != 0){
+					printf("[SYSCALL CP] pushing spawn failed: %d\n", ret);
+					spawn->parent->saved_registers.eax = -1;
+				}
+				thread_t *current = get_current_thread();
+				current->saved_registers.eax = spawn->new_pid;
+				// ret->eax = spawn->new_pid;
+				// ret = &current->saved_registers;
+			}	
+		}
+		break;
+		case SYSCALL_EXIT:
+		{	
+			// unsigned int 
+			ret = switch_task(esp, eip);
+
+			extern struct list_info *thread_queue;
+			thread_t *to_kill = pop_back(thread_queue);
+			to_kill->queue = DEATH;
+			push_death(to_kill);
+			printf("KILLEM: %d, cur: %d\n", to_kill->pid, get_current_thread()->pid);
+		}
+		break;
+		case SYSCALL_SEM_WAIT:
+		{
+			sem_t *sem = (sem_t *)param1;
+			if(sem->counter > 0){
+				sem->counter--;
+			}
+			// printf("[SYSCALL W] waiting: %d, %d\n", sem->id, get_current_thread()->pid);
+				
+			if(sem->counter <= 0){
+				thread_t *cur_thread = get_current_thread();
+				cur_thread->sleep_pos = (sem->id << 2) | WAIT_SEM;
+				// printf("[SCAL WAIT] switching thread, pid: %d, param: %x\n", cur_thread->pid, (sem->id << 2) | WAIT_SEM);
+				// // printf("[SYSCALL W] id_set: %d\n", cur_thread->sleep_pos);
+
+				ret = switch_task(esp, eip);	// tu zmieniany jest katalog
+				// printf("[SYSCALL W] task switched\n");
+
+				extern struct list_info *thread_queue;
+				thread_t *waiting_thread = pop_back(thread_queue);
+				waiting_thread->queue = WAIT;
+				// waiting_thread->sleep_pos = sem->id; 
+				// printf("[SYSCALL W] thread_pooped: %d, %d\n", waiting_thread->pid, waiting_thread->sleep_pos);
+				push_wait(waiting_thread);
+
+
+				// printf("Wait queue: ");
+				// extern struct list_info *wait_queue;
+				// struct lnode *t = wait_queue->head;
+				// while(t != NULL){
+				// 	printf("%d -> ", ((thread_t *)t->value)->pid);
+				// 	t = t->nextl;
+				// }
+				// printf("\n");
+
+			}
+			// printf("[SYSCALL W] waited\n");
+		}
+		break;
+		case SYSCALL_SEM_POST:
+		{
+			sem_t *sem = (sem_t *)param1;
+			// printf("[SCAL POST] posting: %d, %d\n", sem->id, get_current_thread()->pid);
+			if(sem != NULL){
+				sem->counter++;
+				if(sem->counter > 0){
+					// printf("[SCAL POST] getting, param: %x\n", (sem->id << 2) | WAIT_SEM);
+					thread_t *thr_q = get_waiting((sem->id << 2) | WAIT_SEM);
+					if(thr_q != NULL){
+						// printf("[SCAL POST] got: %d\n", thr_q->pid);
+						thr_q->queue = THREAD;
+						queue_thread(thr_q);
+					}
+				}
+			}
+		}
+		break;
+		case SYSCALL_WAIT_FOR_FINISH:
+		{
+			unsigned int pid = param1;
+			thread_t *cur_thread = get_current_thread();
+			cur_thread->sleep_pos = (pid << 2) | WAIT_PROC;
+
+			ret = switch_task(esp, eip);	// tu zmieniany jest katalog
+
+			extern struct list_info *thread_queue;
+			thread_t *waiting_thread = pop_back(thread_queue);
+			waiting_thread->queue = WAIT;
+
+			push_wait(waiting_thread);
 		}
 		break;
 	}
-	serial_write("After eip: ");
-	serial_x(((struct registers_struct *)ret)->eip);
-	serial_write("\nAfter esp: ");
-	serial_x(((struct registers_struct *)ret)->esp);
-	serial_write("\ncr3: ");
-	serial_x(get_cr3());
-	serial_write("\n");
-	serial_write("--------------\n");
+	// serial_write("After eip: ");
+	// serial_x(((struct registers_struct *)ret)->eip);
+	// serial_write("\nAfter esp: ");
+	// serial_x(((struct registers_struct *)ret)->esp);
+	// serial_write("\ncr3: ");
+	// serial_x(get_cr3());
+	// serial_write("\n");
+	// serial_write("--------------\n");
 
 	// struct registers_struct *after = (struct registers_struct *)ret;
 	// printf("cur regs: %x, x: %x\n", cur_registers->privl, *((unsigned int *)((char *)ret + 40)));
@@ -382,48 +507,45 @@ unsigned char special_keys[3];
 char punct_chars[PUNCT_SIZE];
 
 void irq1_handler(){ // handler klawiatury
-	// serial_write("Key pressed: ");
-	// char num[10];
 	unsigned char scancode = inb(KEYBOARD_DATA_PORT);
 	switch(scancode){
 		case 0x2A: // left shift pressed
 			special_keys[KEY_SHIFT] = 1;
-			serial_write("[KEYBOARD] shift pressed\n");
+			// serial_write("[KEYBOARD] shift pressed\n");
 		break;
 		case 0x36: // left shift pressed
 			special_keys[KEY_SHIFT] = 1;
-			serial_write("[KEYBOARD] shift pressed\n");
+			// serial_write("[KEYBOARD] shift pressed\n");
 		break;
 		case 0xAA: // left shift released
 			special_keys[KEY_SHIFT] = 0;
-			serial_write("[KEYBOARD] shift released\n");
+			// serial_write("[KEYBOARD] shift released\n");
 		break;
 		case 0xB6:
 			special_keys[KEY_SHIFT] = 0;
-			serial_write("[KEYBOARD] shift released\n");
+			// serial_write("[KEYBOARD] shift released\n");
 		break;
 	}
 	if(scancode <= 0x39 && key_map[scancode] != '\0'){
+		char char_to_put = key_map[scancode];
+		int put_char = 1;
 		switch(key_map[scancode]){
 			case '\e':
-				terminal_enter();
+				char_to_put = '\n';
 			break;
 			case '\t':
-				terminal_redraw();
+				put_char = 0;
 			break;
 			case '\b':
-				terminal_backspace();
+				char_to_put = '\b';
 			break;
 
 			default:
 			{
-				char char_to_put = key_map[scancode];
 				if(special_keys[KEY_SHIFT]){
 					if(isalpha(char_to_put)){
 						char_to_put = toupper(char_to_put);
-						// serial_write("[KEYBOARD] IS ALPHA\n");
 					}else if(isnum(char_to_put)){
-						// serial_write("[KEYBOARD] IS NUM\n");
 						char_to_put = char_keys_map[char_to_put - '0'];
 					}else{
 						for(int k = 0; k < PUNCT_SIZE; k++)
@@ -432,18 +554,31 @@ void irq1_handler(){ // handler klawiatury
 								break;
 							}
 					}
-					// char_to_put = '_';
 				}
-				terminal_putc(char_to_put);
-				terminal_input_from_keyboard();
+			}
+		}
+		if(put_char){
+			int res = term_keyboard_in(char_to_put);
+			if(res){
+				thread_t *waiting_thread = pop_io();
+				if(waiting_thread != NULL){
+					unsigned int cur_dir = get_current_thread()->directory->directory_addr;
+					set_page_directory(waiting_thread->directory->directory_addr);
+					char *thread_buff = (char *)waiting_thread->sleep_pos;
+					char *term_input = term_buff();	// ustawia flagę do wyczyszczenia bufora terminala
+					int i = 0;
+					for(; i <= res; i++){
+						thread_buff[i] = term_input[i];
+					}
+
+					set_page_directory(cur_dir);
+					waiting_thread->queue = THREAD;
+					queue_thread(waiting_thread);
+				}
 			}
 		}
 	}
-	
-	// itoa((int)scancode, num);
-	// serial_putc(scancode);
-	// serial_write(num);
-	// serial_write("\n");
+
 	outb(0x20, 0x20); // interrupt handled
 }
 

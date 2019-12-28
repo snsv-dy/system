@@ -348,6 +348,9 @@ int free_page(struct page_directory_struct *directory, void *v_addr, unsigned in
 	unsigned int uaddr = v_addr;
 	unsigned int pde = uaddr >> 22;
 	unsigned int j = (uaddr >> 22) * 1024 + ((uaddr >> 12) & 0x3FF);
+
+	// printf("[FREE PAGE] pde: %d, pte: %d, j: %d, n: %d\n", pde, (uaddr >> 12) & 0x3FF, j % 1024, n_pages);
+	// printf("[FREE PAGE] uaddr: %x\n", uaddr);
 	for(int i = 0; i < n_pages; i++, j++){
 		unsigned int *table = directory->directory_v[j / 1024];
 		if(table[j % 1024] == 0){
@@ -361,7 +364,7 @@ int free_page(struct page_directory_struct *directory, void *v_addr, unsigned in
 		printf("[FREE PAGE] block start == 0\n");
 	}
 
-	printf("[FREE PAGE] block start: %d\n", block_start);
+	// printf("[FREE PAGE] block start: %d\n", block_start);
 
 	for(int i = 0; i < n_pages; i++){
 		clear_bit_in_bitmap(memory_bitmap, block_start + i);

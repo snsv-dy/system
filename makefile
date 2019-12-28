@@ -57,7 +57,7 @@ heap.o: heap.c heap.h
 	$(CC) $(CFLAGS) -o heap.o -c heap.c	
 
 thread.o: thread.c thread.h
-	$(CC) $(CFLAGS) -o thread.o -c thread.c	
+	$(CC) $(CFLAGS) -o thread.o -c thread.c
 
 
 doubly_linked_list.o: doubly_linked_list.h doubly_linked_list.c

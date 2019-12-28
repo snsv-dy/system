@@ -1,6 +1,5 @@
 #include "shell.h"
 
-
 #define FB_COMMAND_PORT	0x3D4
 #define FB_DATA_PORT	0x3D5
 
@@ -21,9 +20,75 @@ int framebuffer_height;
 int framebuffer_x;
 int framebuffer_y;
 
-char terminal_lines[TERMINAL_HEIGHT][SCREEN_WIDTH] = {0};
+int term_size = TERM_HEIGHT * SCREEN_WIDTH;
+char term_data[TERM_HEIGHT * SCREEN_WIDTH] = {0};
 
+#define TERM_AT(x, y) term_data[y * TERM_WIDTH + x]
+
+int term_view_beg = 0;
+int term_view_end = SCREEN_HEIGHT - 1;
+int term_end = 0;
+int term_full = 0;
 // void write_line(char *str, )
+
+#define IN_BUFFER_LENGTH 1000
+char in_buffer[IN_BUFFER_LENGTH];
+int in_buffer_pos;
+int input_interrupted; // czy podzczas wprowadzania danych, został wyświetlony jakiś inny tekst
+int in_read;	// czy bufor został odczytany przez program i może być wyczyszczony
+
+#define in_buffer_clear(){ \
+	in_buffer_pos = 0; \
+	in_buffer[in_buffer_pos] = '\0'; \
+}
+
+#define in_buffer_putc(c) { \
+	in_buffer[in_buffer_pos++] = c; \
+	in_buffer[in_buffer_pos] = '\0'; \
+}
+
+#define in_buffer_backspace() { \
+	if(in_buffer_pos > 0){ \
+		in_buffer[in_buffer_pos - 1] = '\0'; \
+	} \
+}
+
+char *term_buff(){
+	in_read = 1;
+	return in_buffer;
+}
+
+int term_keyboard_in(char c){
+	if(in_read){
+		in_buffer_clear();
+		in_read = 0;
+	}
+
+	int end_of_input = 0; // czy został wciśnięty enter i można przekazać tekst programowi
+
+
+	if(input_interrupted){
+		term_write(in_buffer);
+	}
+	
+	if(c != '\b')
+		in_buffer_putc(c);
+
+	if(c == '\n'){
+		end_of_input = in_buffer_pos;
+		term_enter(1);
+	}else if(c == '\b'){
+		term_backspace();
+	}else{
+		term_putc(c, TERM_NOREFRESH);
+	}
+
+	term_draw();
+	input_interrupted = 0;
+
+	return end_of_input;
+}
+
 
 void framebuffer_charAt(unsigned char c, int x, int y){
 	if(x > framebuffer_width)
@@ -51,20 +116,25 @@ void framebuffer_init(){
 	terminal_full = 0;
 	terminal_input_lenght = 0;
 
+	in_buffer_pos = 0;
+	in_buffer[0] = '\0';
+	input_interrupted = 0;
+	in_read = 0;
+
 	current_line = 0;
 	current_char = 0;
 	for(int i = 0; i < TERMINAL_HEIGHT; i++)
 		for(int j = 0; j < SCREEN_WIDTH; j++)
-			terminal_lines[i][j] = ' ';
+			TERM_AT(j, i) = ' ';
 
-	terminal_redraw();
+	term_draw();
 }
 
 void dump_term(){
 	serial_write(" --- TERM DATA ---");
 	for(int i = 0; i < TERMINAL_HEIGHT; i++)
 		for(int j = 0; j < SCREEN_WIDTH; j++)
-			terminal_lines[i][j] = ' ';
+			TERM_AT(j, i) = ' ';
 	serial_write(" --- TERM END  ---");
 }
 
@@ -80,247 +150,123 @@ void framebuffer_clear(){
 			framebuffer_charAt(' ', j, i);
 }
 
-void newline(){
-	framebuffer_x = 0;
-	framebuffer_y += 1;
-	if(framebuffer_y > framebuffer_height)
-		framebuffer_y = 0;
-}
-
-void putc(char c){
-	if(framebuffer_x > framebuffer_width){
-		framebuffer_x = 0;
-		framebuffer_y++;
-	}
-
-	if(framebuffer_y > framebuffer_height){
-		framebuffer_y = 0;
-	}
-
-	framebuffer_charAt(c, framebuffer_x, framebuffer_y);
-	framebuffer_x++;
-}
-
-void puts(char *str){
-	unsigned int length = strlen(str);
-	unsigned int i;
-	for(i = 0; i < length; i++){
-		putc(str[i]); 
-		// framebuffer_move_cursor(81);
-	}
-	framebuffer_move_cursor((framebuffer_y * framebuffer_width) + framebuffer_x);
-}
-
-void terminal_redraw(){
-	// serial_write("drawing\n");
-
-	// for(int i = terminal_begin, c = 0; 
-	for(int i = terminal_begin, c = 0; 
-		// (!terminal_full && i < terminal_end) || 
-		// (terminal_full && c < SCREEN_HEIGHT)
-		c < SCREEN_HEIGHT;
-		 i++, c++){
-		if( i >= TERMINAL_HEIGHT)
+void term_draw(){
+	for(int i = term_view_beg, c = 0; c < SCREEN_HEIGHT; i++, c++){
+		if( i >= TERM_HEIGHT)
 			i = 0;
 
-		for(int j = 0; j < SCREEN_WIDTH; j++){
-			// char to_put = terminal_lines[i][j];
-			framebuffer_charAt(terminal_lines[i][j], j, c);
+		for(int j = 0; j < TERM_WIDTH; j++){
+			framebuffer_charAt(TERM_AT(j, i), j, c);
 		}
 	}
 
-	// for(int i = 0; i < SCREEN_HEIGHT; i++){
-	// 	for(int j = 0; j < SCREEN_WIDTH; j++){
-	// 		framebuffer_charAt(terminal_lines[i][j], j, i);	
-	// 	}
-	// }
+	int last_line = (term_end / TERM_WIDTH);
+	int line_end = term_end % TERM_WIDTH;
+	int bottom = last_line;//term_view_end / TERM_WIDTH;
+	if(line_end > SCREEN_HEIGHT - 1)
+		bottom = SCREEN_HEIGHT - 1;
 
-	// serial_write("drawing end\n");
-	// char buf[25];
-	// itoa(terminal_begin, buf);
-	// serial_write("[REDRAW] term beg: ");
-	// serial_write(buf);
-	// serial_write("\n[REDRAW] term end: ");
-	// buf[0] = '\0';
-	// itoa(terminal_begin, buf);
-	// serial_write(buf);
-	// serial_write("\n");
+	framebuffer_move_cursor(bottom * TERM_WIDTH + line_end);
 }
 
-int terminal_sanity_check(){
-	int redraw = 0;
+#define is_term_scroll() \
+ ( (term_end % TERM_WIDTH == 0 && term_full) || ((term_end / TERM_WIDTH) > term_view_end))
 
-	char buf[24];
-	itoa(terminal_end, buf);
-	// serial_write("term end: ");
-	// serial_write(buf);
-	// serial_write("\n");
-	// if(current_char >= SCREEN_WIDTH){
-		// current_char = 0;
 
-		// terminal_end += 1;
-		if(!terminal_full && terminal_end >= SCREEN_HEIGHT)
-			terminal_full = 1;
+void term_putc(char c, int ref){
+	term_data[term_end++] = c;
 
-		if(terminal_full){
-			terminal_begin += 1;
-			redraw = 1;
-		}
+	if(term_end >= term_size){
+		term_end = 0;
+		term_full = 1;
+	}
 
-		if(terminal_end >= TERMINAL_HEIGHT){
-			// serial_write("TERMINAL_END >= TERMINAL_HEIGHT\n");
-			terminal_end = 0;
-		}
+	if(is_term_scroll()){
+		term_scroll(TERMINAL_SCROLL_DOWN);
+		
+		term_clear_line(term_view_end);
+	}
 
-		if(terminal_begin >= TERMINAL_HEIGHT){
-			terminal_begin = 0;
-		}
+	if(ref)
+		term_draw();
 
-	// itoa(terminal_begin, buf);
-	// serial_write("[SANITY] term beg: ");
-	// serial_write(buf);
-	// serial_write("\n[SANITY] term end: ");
-	// itoa(terminal_begin, buf);
-	// serial_write(buf);
-	// serial_write("\n");
-	// }
+	input_interrupted = 1;
+}
+#define terminal_putc(c) term_putc(c, 1)
 
-	return redraw;
+void term_write(char *str){
+	while(*str != '\0'){
+		term_putc(*str, 0);
+		str++;
+	}
+	term_draw();
 }
 
-void terminal_putc(char c){
-	char redraw = 0;
-	if(current_char >= SCREEN_WIDTH){
-		current_char = 0;
-
-		terminal_end += 1;
-		redraw = terminal_sanity_check();
-		// if(!terminal_full && terminal_end >= SCREEN_HEIGHT)
-		// 	terminal_full = 1;
-
-		// if(terminal_full){
-		// 	terminal_begin += 1;
-		// 	redraw = 1;
-		// }
-
-		// if(terminal_end >= TERMINAL_HEIGHT){
-		// 	terminal_end = 0;
-		// }
-
-		// if(terminal_begin >= TERMINAL_HEIGHT){
-		// 	terminal_begin = 0;
-		// }
+void term_enter(int org){
+	term_end += TERM_WIDTH - term_end % TERM_WIDTH;
+	if(term_end >= term_size){
+		term_full = 1;
+		term_end = 0;
 	}
-
-	char charAt_y = terminal_end;
-	if(terminal_end >= SCREEN_HEIGHT){
-		charAt_y = SCREEN_HEIGHT - 1;
+	if(is_term_scroll()){
+		term_scroll(TERMINAL_SCROLL_DOWN);
+		term_clear_line(term_view_end);
 	}
-
-	framebuffer_charAt(c, current_char, charAt_y);
-
-	terminal_lines[terminal_end][current_char] = c;
-	// serial_write("putting c: ");
-	// serial_putc(terminal_lines[terminal_end][current_char]);
-	// serial_write("\n");
-	current_char++;
-
-	if(redraw){
-		terminal_redraw();
-	}
-
-	int cursor_y = terminal_end;
-	if(terminal_full){
-		cursor_y = SCREEN_HEIGHT - 1;
-	}
-	framebuffer_move_cursor(SCREEN_WIDTH * cursor_y + current_char);
 }
 
-void terminal_puts(char *str){
-	for(int i = 0; str[i] != '\0'; i++){
-		terminal_putc(str[i]);
+void term_clear_line(int line){
+	line = line % TERM_HEIGHT;
+	for(int i = 0; i < TERM_WIDTH; i++){
+		TERM_AT(i, line) = ' ';
 	}
-	// serial_write("TERM: ");
-	// serial_write(str);
-	// serial_write("\n");
 }
 
-void terminal_enter(){
-	terminal_end++;
-
-	current_char = 0;
-	if(terminal_sanity_check())
-		terminal_redraw();
-
-	for(int i = 0; i < SCREEN_WIDTH; i++)
-		terminal_lines[terminal_end][i] = ' ';
+void term_backspace(){
 	
-	int cursor_y = terminal_end;
-	if(terminal_full){
-		cursor_y = SCREEN_HEIGHT;
-	}
+	if(in_buffer_pos > 0){
+		serial_write("in_buffer_pos: ");
+		serial_d(in_buffer_pos);
+		serial_write("\n");
 
-	framebuffer_move_cursor(SCREEN_WIDTH * cursor_y + current_char);
-	terminal_input_lenght = 0;
-}
+		in_buffer_backspace();
+		in_buffer_pos--;
 
-void terminal_input_from_keyboard(){
-	terminal_input_lenght++;	
-}
-
-void terminal_backspace(){
-	if(terminal_input_lenght > 0){
-		terminal_input_lenght--;
-
-
-		int temp_end = terminal_end;
-		if(temp_end >= SCREEN_HEIGHT)
-			temp_end = SCREEN_HEIGHT - 1;
-
-		current_char--;
-		terminal_lines[terminal_end][current_char] = ' ';
-		if(current_char < 0){
-			// framebuffer_y = 0; framebuffer_x = 0;
-			current_char = SCREEN_WIDTH - 1;
-
-			terminal_end--;
-			temp_end--;
-			if(terminal_full)
-				terminal_begin--;
-
-			// serial_write("[TERM] term end: ");
-			// serial_putc(terminal_end / 10 % 10 + '0');
-			// serial_putc(terminal_end% 10 + '0');
-			// serial_putc('\n');
-
-			// for(; terminal_lines[terminal_end][current_char] != '\0' && terminal_lines[terminal_end][current_char] != ' '; current_char++);
-
-
-			// puts("Current char: ");
-			// char buf[12];
-			// itoa(current_char, buf);
-			// puts(buf);
+		if(!input_interrupted){
+			term_end--;
+			term_data[term_end] = ' ';
+		}else{
+			term_write(in_buffer);
 		}
-
-		if(terminal_end < 0){
-			terminal_end = 0;
-		}
-		terminal_redraw();
-		// framebuffer_charAt(' ', current_char, temp_end);
-
-		framebuffer_move_cursor(SCREEN_WIDTH * temp_end + current_char);
+		term_draw();
 	}
 }
 
-// void terminal_scroll(TERMINAL_SCROLL_DIR dir){
-// 	if(terminal_full){
-// 		switch(dir){
-// 			case TERMINAL_SCROLL_UP:
-
-// 			break;
-// 		}
-// 	}
-// }
+void term_scroll(TERMINAL_SCROLL_DIR dir){
+	switch(dir){
+		case TERMINAL_SCROLL_UP:
+		{
+			term_view_beg--;
+			if(term_view_beg < 0)
+				term_view_beg = TERM_HEIGHT - 1;
+				
+			term_view_end--;
+			if(term_view_end < 0)
+				term_view_end = TERM_HEIGHT - 1;
+		}
+		break;
+		case TERMINAL_SCROLL_DOWN:
+		{
+			term_view_beg++;
+			if(term_view_beg >= TERM_HEIGHT)
+				term_view_beg = 0;
+				
+			term_view_end++;
+			if(term_view_end >= TERM_HEIGHT)
+				term_view_end = 0;
+		}
+		break;
+	}
+}
 
 char tolower(const char c){
 	if(c >= 'A' && c <= 'Z')

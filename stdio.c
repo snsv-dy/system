@@ -4,7 +4,7 @@
 int print_text(char *str){
 	int showed = 0;
 	for(int i = 0; *(str + i); i++)
-		terminal_putc(*(str + i)), showed++;
+		term_putc(*(str + i), TERM_NOREFRESH), showed++;
 	return showed;
 }
 
@@ -16,7 +16,7 @@ int print_int(int num){
 	int showed = 0; 
 	
 	if(num < 0) {
-		terminal_putc('-');
+		term_putc('-', TERM_NOREFRESH);
 		num *= -1;
 		showed++;
 	}
@@ -28,7 +28,7 @@ int print_int(int num){
 			dig /= 10;
 		}
 		
-		terminal_putc((dig % 10) + '0'), showed++;;
+		term_putc((dig % 10) + '0', TERM_NOREFRESH), showed++;;
 	}
 	
 	return showed;
@@ -80,7 +80,7 @@ int print_unsigned(unsigned int num){
 			dig /= 10;
 		}
 		
-		terminal_putc((dig % 10) + '0'), showed++;;
+		term_putc((dig % 10) + '0', TERM_NOREFRESH), showed++;;
 	}
 	
 	return showed;
@@ -94,9 +94,9 @@ int print_uhex(unsigned int num){
 	for(int i = 7; i >= 0; i--){
 		unsigned int t = (num & (0xF << (i*4))) >> (i*4);
 		if(t < 10)
-			terminal_putc(t + '0');
+			term_putc(t + '0', TERM_NOREFRESH);
 		else
-			terminal_putc(t - 10 + 'A');
+			term_putc(t - 10 + 'A', TERM_NOREFRESH);
 		// num >> 4;
 		showed++;
 	}
@@ -132,18 +132,18 @@ int print_double(double num){
 			dig /= 10;
 		}
 		
-		terminal_putc(((int)dig % 10) + '0');
+		term_putc(((int)dig % 10) + '0', TERM_NOREFRESH);
 	}
 	showed += numlen;
 	
-	terminal_putc('.');
+	term_putc('.', TERM_NOREFRESH);
 	showed++;
 //	printf("isnum<0: %d\n", num < 0);
 	num -= (int)num;
 	for(int i = 0; i < 5; i++){
 		num *= 10;
 		
-		terminal_putc(((int)num % 10) + '0');
+		term_putc(((int)num % 10) + '0', TERM_NOREFRESH);
 	}
 	showed += 5;
 	
@@ -179,16 +179,24 @@ int printf(char *format, ...){
 				case 'u': showed += print_unsigned(va_arg(lista, unsigned int)); break;
 				case 'f': showed += print_double(va_arg(lista, double)); break;
 				case 'x': showed += print_uhex(va_arg(lista, unsigned int)); break;
+				case 'c': {
+					showed++;
+					term_putc(va_arg(lista, char), TERM_NOREFRESH);
+				}
+				break;
 			}
 		}else if(c =='\n'){
-			terminal_enter();
+			// serial_write("newline char\n");
+			term_enter(0);
 		}else{
-			terminal_putc(c);
+			term_putc(c, TERM_NOREFRESH);
 			showed++;
 		}
 	}
 	
 	va_end(lista);
+
+	term_draw();
 	
 	return showed;
 }

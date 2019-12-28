@@ -14,10 +14,12 @@ for i in range(0, csize, 4):
 	rd = f.read(4)
 	data.append(int.from_bytes(rd, byteorder='little'))
 
-print("Data: ")
-for i in data:
-	print(i)
-print("")
+# print("Data: ")
+# for i in data:
+# 	print(i)
+# print("")
+
+print("data len: ", len(data))
 
 pstr = "{"
 for i in range(len(data)):
@@ -29,4 +31,4 @@ pstr += "};"
 out = open("result.txt", "w")
 out.write(pstr)
 
-print(pstr)
+# print(pstr)
