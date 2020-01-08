@@ -29,6 +29,32 @@ enable_interrupts:
 	sti
 	ret
 
+; syscall z programu użytkownika
+global syscall_caller
+syscall_caller:
+push ebp
+mov ebp, esp
+
+push ecx
+mov ecx, ebp
+
+push eax
+push ebx
+
+mov eax, [ebp + 12]
+mov ebx, [ebp + 8]
+int 80
+
+pop ebx
+pop ecx
+; pop eax	eax zawiera wartość zwracaną przez syscalla, więc nie przywracam jej
+pop ecx
+
+mov esp, ebp
+pop ebp
+
+ret
+
 extern syscall_handler
 global syscall_handled
 ;global syscall_iret
@@ -39,6 +65,15 @@ syscall:
 	pushad
 	call save_registers
 	popad
+	cmp dword [esp + 4], USER_CODE_SEGMENT
+	je user_syscall
+	mov ecx, [esp]
+	mov edx, esp
+	add edx, 12
+	push ecx
+	push edx
+	jmp common_syscall
+user_syscall:
 	; pobieranie eip i esp ze stosu
 	; które wstawił tam procesor podczas przerwania
 	mov edx, esp
@@ -48,7 +83,7 @@ syscall:
 	add edx, 12 + 4
 	push dword [edx]	; tu jest esp
 
-	push ecx
+common_syscall:
 	push ebx
 	push eax
 	call syscall_handler
@@ -62,6 +97,7 @@ syscall_handled:
 	;push eax
 	;popad
 	;pop eax
+after_syscall:
 	cmp dword [eax + ESP_POS + 8], 0
 	jne user_realm_sc
 	mov edx, [eax + ESP_POS]	; esp w wątku kernela, tam trzeba wstawić dane do ireta
@@ -152,6 +188,7 @@ interrupt_return:
 	cli
 	mov ebp, esp
 	; pop eax żeby usunąć adres powrotu?
+	; chyba nie
 	cmp dword [ebp + 4 + 8], 0
 	je kernel_stack
 	mov ax, USER_DATA_SEGMENT
@@ -294,7 +331,6 @@ global load_idt
 global irqdefm
 global irqdefs
 global irq1
-global page_except
 global timer_interrupt
 
 extern irqmaster_handler
@@ -399,7 +435,7 @@ call irqmaster_handler		; informowanie pic, że przerwanie zostało obsłużone
 	mov edi, [eax]			; prywracanie rejestrów ogólnego przeznaczenia
 	mov esi, [eax + 4]		; na takie jakie były przed przerwaniem 
 	mov ebp, [eax + 8]		; (nie koniecznie takie jakie były na początku przerwania
-	;mov esp, [eax + 12]	; w linice 314)
+	;mov esp, [eax + 12]	; w linice 314, jeżeli wątek został zmieniony)
 	mov ebx, [eax + 16]
 	mov edx, [eax + 20]
 	mov ecx, [eax + 24]
@@ -468,21 +504,49 @@ gpf:
 	pop eax
 	iret
 
-page_except:
-	push eax
-	mov eax, [esp + 4]
-	pusha
-	push eax
-	mov eax, cr2
-	push eax
-	call page_except_handler
-	pop eax
-	pop eax
+global page_fault
+extern page_fault_handler
+page_fault:
+	pushad
+	call save_registers
+	popad
+	cmp dword [esp + 8], USER_CODE_SEGMENT
+	je user_pf
+	mov ecx, [esp + 4]
+	mov edx, esp
+	add edx, 16
+	push ecx
+	push edx
+	jmp common_pf
+user_pf:
+	mov edx, esp
+	push dword [edx + 4] ; eip
 
-	popa
-	pop eax
-	pop eax
-	iret
+	mov edx, [edx + 16] ; esp
+	push edx
+common_pf:
+	mov edx, [esp + 8]
+	push edx
+	mov edx, cr2
+	push edx
+	call page_fault_handler
+	sub esp, 16
+	jmp after_syscall
+
+;	push eax
+;	mov eax, [esp + 4]
+;	pusha
+;	push eax
+;	mov eax, cr2
+;	push eax
+;	call page_except_handler
+;	pop eax
+;	pop eax
+;
+;	popa
+;	pop eax
+;	pop eax
+;	iret
 
 extern double_fault_handler
 global double_fault

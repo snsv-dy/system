@@ -11,6 +11,9 @@
 #define SYSCALL_SEM_POST 7
 #define SYSCALL_START_PROCESS 8
 #define SYSCALL_WAIT_FOR_FINISH 9
+#define SYSCALL_SEM_OPEN 10
+#define SYSCALL_SEM_UNLINK 11
+#define SYSCALL_SEM_RAND 12
 
 extern int syscall(unsigned int call_type, void *data);
 

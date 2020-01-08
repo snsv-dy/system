@@ -158,7 +158,7 @@ void init_idt(){
     outb(PICS_DATA, 0x0);
     
 
-    SET_IDT_ENTRY(14, page_except);
+    SET_IDT_ENTRY(14, page_fault);
     {
     	SET_IDT_ENTRY(8, double_fault);
 	}
@@ -229,22 +229,52 @@ void double_fault_handler(unsigned int err){
 
 #include "thread.h"
 
-void page_except_handler(unsigned int vaddr, unsigned int err){
-	printf("Page fault: \n");
+void *page_fault_handler(unsigned int vaddr, unsigned int err, unsigned int esp, unsigned int eip){
+	// printf("Page fault: \n");
 
-	thread_t *th = get_current_thread();
-	printf("thread: %d\n", th->pid);
+	thread_t *thread = get_current_thread();
+	if(thread != NULL){
+		thread->saved_registers.eip = eip;
+		thread->saved_registers.esp = esp;
+		// printf("[PAGE FAULT] eip: %x, esp: %x\n", eip, esp);
+	}else{
+		printf("[PAGE FAULT] thread == NULL\n");
+	}
 
-	serial_write("\t\tPAGE_FAULT: ");
-	char buff[20];
-	utoa(err, buff);
-	serial_write(buff);
-	serial_write(", at: ");
-	serial_x(vaddr);
-	serial_write("\n");
-	halt();
-	//outb(0x20, 0x20);
+	void *ret = &thread->saved_registers;
 
+	int res = 0;
+	if(vaddr >= 0xC0000000)
+		res = enlarge_stack(thread, vaddr);
+	else
+		res = 1;
+
+	if(res != 0){
+		ret = switch_task(esp, eip);
+
+		extern struct list_info *thread_queue;
+		thread_t *to_kill = pop_back(thread_queue);
+		to_kill->queue = DEATH;
+		push_death(to_kill);
+		if(to_kill->parent != NULL){
+			thread_t *removed = remove_thread_from_queues(to_kill->parent);
+			push_death(to_kill->parent);
+		}
+		// printf("KILLEM: %d, cur: %d\n", to_kill->pid, get_current_thread()->pid);
+		wake_killer();
+
+		printf("Sorry no more memory in stack for thread %d, trying to access: %x\n", to_kill->pid, vaddr);
+		// serial_write("\t\tPAGE_FAULT: ");
+		// char buff[20];
+		// utoa(err, buff);
+		// serial_write(buff);
+		// serial_write(", at: ");
+		// serial_x(vaddr);
+		// serial_write("\n");
+		// halt();
+	}
+
+	return ret;
 }
 
 void gpf_handler(unsigned int err){
@@ -289,11 +319,13 @@ typedef struct thread_pck{
 #define SYSCALL_SEM_POST 7
 #define SYSCALL_START_PROCESS 8
 #define SYSCALL_WAIT_FOR_FINISH 9
-
+#define SYSCALL_SEM_OPEN 10
+#define SYSCALL_SEM_UNLINK 11
+#define SYSCALL_SEM_RAND 12
 
 // extern void switch_task();
 // prog_esp to trzeba wywalić bo jest do niczego nie potrzebny
-void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int prog_esp, unsigned int esp, unsigned int eip){
+void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int esp, unsigned int eip){
 	// printf("[SYSCALL] param1: %x, param2: %x, eip: %x\n", param1, param2, prog_eip);
 	// serial_write("[SYSCALL] it's wednesday\nparam1: ");
 	// serial_x(param1);
@@ -335,6 +367,7 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 			thread_t *cur_thread = pop_back(thread_queue);
 			*((unsigned int *)&(cur_thread->sleep_pos)) = param1;
 			push_io(cur_thread);
+			term_input_start();
 		}
 		break;
 		case SYSCALL_SWITCH_TASK:
@@ -349,9 +382,11 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 		break;
 		case SYSCALL_CREATE_THREAD:
 		{
+			printf("               CREATING THREAD\n");
 			spawn_t *spawn = (spawn_t *)kmalloc(sizeof(spawn_t));
 			if(spawn == NULL){
 				printf("[SYSCALL F] no memory for spawn_t\n");
+				get_current_thread()->saved_registers.eax = -2;
 			}else{
 				thread_pack *pack = (thread_pack *)param1;
 
@@ -365,12 +400,16 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 				spawn->thread_ptr = pack->thread;
 				spawn->func = pack->func;
 				spawn->param = pack->param;
+				srintf("[SCL CT] new_thread pid: %d\n", spawn->new_pid);
 
 				int ret = push_spawn(spawn);
 				if(ret != 0){
 					printf("[SYSCALL F] pushing fork failed: %d\n", ret);
 					spawn->parent->saved_registers.eax = -1;
 				}
+				wake_spawner();
+
+				// printf("spawner waked\n");
 			}
 		}
 		break;
@@ -395,7 +434,8 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 				current->saved_registers.eax = spawn->new_pid;
 				// ret->eax = spawn->new_pid;
 				// ret = &current->saved_registers;
-			}	
+				wake_spawner();
+			}
 		}
 		break;
 		case SYSCALL_EXIT:
@@ -408,18 +448,36 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 			to_kill->queue = DEATH;
 			push_death(to_kill);
 			printf("KILLEM: %d, cur: %d\n", to_kill->pid, get_current_thread()->pid);
+			wake_killer();
 		}
 		break;
 		case SYSCALL_SEM_WAIT:
 		{
 			sem_t *sem = (sem_t *)param1;
-			if(sem->counter > 0){
-				sem->counter--;
+			int do_switch = 0;
+			// printf("[SCL WAIT] sem: %d, proc: %d\n", sem->id, get_current_thread()->pid);
+
+			if(sem->name == NULL){
+				// do_switch = sem->counter <= 0;
+				if(sem->counter > 0){
+					sem->counter--;
+				}else{
+					do_switch = 1;
+				}
+			}else{
+				// int res = ;
+				do_switch = named_sem_wait(sem);
+				// if(res != 0){
+				// }
+
+				// printf("[SCAL WAIT] named wait: %d\n", do_switch);
 			}
 			// printf("[SYSCALL W] waiting: %d, %d\n", sem->id, get_current_thread()->pid);
 				
-			if(sem->counter <= 0){
+			if(do_switch){
+
 				thread_t *cur_thread = get_current_thread();
+				// printf("[SCAL WAIT] SWITCHING cur_thread: %x\n", cur_thread);
 				cur_thread->sleep_pos = (sem->id << 2) | WAIT_SEM;
 				// printf("[SCAL WAIT] switching thread, pid: %d, param: %x\n", cur_thread->pid, (sem->id << 2) | WAIT_SEM);
 				// // printf("[SYSCALL W] id_set: %d\n", cur_thread->sleep_pos);
@@ -453,15 +511,21 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 			sem_t *sem = (sem_t *)param1;
 			// printf("[SCAL POST] posting: %d, %d\n", sem->id, get_current_thread()->pid);
 			if(sem != NULL){
-				sem->counter++;
-				if(sem->counter > 0){
-					// printf("[SCAL POST] getting, param: %x\n", (sem->id << 2) | WAIT_SEM);
-					thread_t *thr_q = get_waiting((sem->id << 2) | WAIT_SEM);
-					if(thr_q != NULL){
-						// printf("[SCAL POST] got: %d\n", thr_q->pid);
-						thr_q->queue = THREAD;
-						queue_thread(thr_q);
+				if(sem->name == NULL){
+					sem->counter++;
+					if(sem->counter > 0){
+						// printf("[SCAL POST] getting, param: %x\n", (sem->id << 2) | WAIT_SEM);
+						thread_t *thr_q = get_waiting((sem->id << 2) | WAIT_SEM);
+						if(thr_q != NULL){
+							// printf("[SCAL POST] got: %d\n", thr_q->pid);
+							thr_q->queue = THREAD;
+							queue_thread(thr_q);
+							sem->counter--;
+						}
 					}
+				}else{
+					int res = named_sem_post(sem);
+					// printf("[SCL POST] res: %d\n", res);
 				}
 			}
 		}
@@ -469,16 +533,60 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 		case SYSCALL_WAIT_FOR_FINISH:
 		{
 			unsigned int pid = param1;
-			thread_t *cur_thread = get_current_thread();
-			cur_thread->sleep_pos = (pid << 2) | WAIT_PROC;
+			int is_finished = has_thread_finished(pid);
+			srintf("[WAIT] is_finished: %d\n", is_finished);
+			if(!is_finished){
+				thread_t *cur_thread = get_current_thread();
+				cur_thread->sleep_pos = (pid << 2) | WAIT_PROC;
 
-			ret = switch_task(esp, eip);	// tu zmieniany jest katalog
+				ret = switch_task(esp, eip);	// tu zmieniany jest katalog
 
-			extern struct list_info *thread_queue;
-			thread_t *waiting_thread = pop_back(thread_queue);
-			waiting_thread->queue = WAIT;
+				extern struct list_info *thread_queue;
+				thread_t *waiting_thread = pop_back(thread_queue);
+				waiting_thread->queue = WAIT;
 
-			push_wait(waiting_thread);
+				push_wait(waiting_thread);
+			}
+		}
+		break;
+		case SYSCALL_SEM_OPEN:
+		{
+			int ret_val = 0;
+			sem_t *sem = (sem_t *)param1;
+			if(sem != NULL){
+				// printf("sem: %x\n", sem);
+				int ret = sem_opener(sem);
+				ret_val = (ret != 0) << 1;
+			}else{
+				ret_val = 1;
+			}
+			// printf("[SCL] sem open ret: %d\n", ret_val);
+
+			get_current_thread()->saved_registers.eax = ret_val;
+		}
+		break;
+		case SYSCALL_SEM_UNLINK:
+		{
+			int ret_val = 0;
+			sem_t *sem = (sem_t *)param1;
+			if(sem != NULL){
+				// printf("sem: %x\n", sem);
+				int ret = sem_unlinker(sem);
+				ret_val = (ret != 0) << 1;
+			}else{
+				ret_val = 1;
+			}
+			// printf("[SCL] sem open ret: %d\n", ret_val);
+
+			get_current_thread()->saved_registers.eax = ret_val;
+		}
+		break;
+		case SYSCALL_SEM_RAND:
+		{
+			if(param1 != NULL){
+				int *sem_rand_ptr = (int *)param1;
+				*sem_rand_ptr = rand();
+			}
 		}
 		break;
 	}
@@ -501,6 +609,8 @@ void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int pro
 #define KEY_CTRL 0
 #define KEY_SHIFT 1
 #define KEY_ALT 2
+
+#define CTRL_C 0x3
 
 unsigned char special_keys[3];
 #define PUNCT_SIZE 10
@@ -525,6 +635,11 @@ void irq1_handler(){ // handler klawiatury
 			special_keys[KEY_SHIFT] = 0;
 			// serial_write("[KEYBOARD] shift released\n");
 		break;
+		case 0x1D: special_keys[KEY_CTRL] = 1; break;
+		case 0x9D: special_keys[KEY_CTRL] = 0; break;
+		case 0x3B: "f1"; break;
+		case 0x3C: "f2"; break;
+
 	}
 	if(scancode <= 0x39 && key_map[scancode] != '\0'){
 		char char_to_put = key_map[scancode];
@@ -554,6 +669,9 @@ void irq1_handler(){ // handler klawiatury
 								break;
 							}
 					}
+				}
+				if(special_keys[KEY_CTRL] && char_to_put == 'c'){
+					char_to_put = CTRL_C;
 				}
 			}
 		}

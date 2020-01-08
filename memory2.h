@@ -27,6 +27,7 @@ unsigned int find_block_in_bitmap(unsigned int *bitmap, unsigned int bit_length,
 
 // struktura opisująca katalog stron
 struct page_directory_struct{
+	unsigned int *directory_phys_addr;
 	unsigned int *directory_addr;
 	unsigned int *directory_v; // będzie zamiast listy tabel
 
@@ -54,11 +55,19 @@ int unmap_virt_addr(struct page_directory_struct *directory, unsigned int v_addr
 // jeżeli map == 0 to zwracany jest adres fizyczny strony (żeby można było ją przypisać do katalogu jakiegoś programu)
 #define get_page(n_pages, map, err) get_page_d(n_pages, map, err, __LINE__, __FILE__)
 void *get_page_d(unsigned int n_pages, unsigned int map, unsigned int *error, int line, char* file);
-int free_page(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages);
+int free_page_d(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages, int line, char *file);
+#define free_page(directory, v_addr, n_pages) free_page_d(directory, v_addr, n_pages, __LINE__, __FILE__)
 int initialize_memory(unsigned int kernel_start, unsigned int kernel_end, multiboot_memory_map *mmap_addr, unsigned int mmap_length);
-int enlarge_heap(heap_block *last_block, unsigned int size);
-int alloc_tables(struct page_directory_struct *directory, unsigned int n_tables);
+
+extern int enlarge_heap_d(heap_block *heap, unsigned int size, int line, char *file);
+#define enlarge_heap(last_block, size) enlarge_heap_d(heap, size, __LINE__, __FILE__)
+int alloc_tables_d(struct page_directory_struct *directory, unsigned int n_tables, int line, char *file);
+#define alloc_tables(directory, n_tables) alloc_tables_d(directory, n_tables, __LINE__, __FILE__)
+#define alloc_tables_at(directory, start, n_tables) alloc_tables_at_d(directory, start, n_tables, __LINE__, __FILE__)
 
 int unmap_pages(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages);
-int map_pages(struct page_directory_struct *directory, void *v_addr, unsigned int phys_start, unsigned int n_pages, unsigned int flags);
+int map_pages_d(struct page_directory_struct *directory, void *v_addr, unsigned int phys_start, unsigned int n_pages, unsigned int flags, int line, char *file);
+#define map_pages(directory, v_addr, phys_start, n_pages, flags) map_pages_d(directory, v_addr, phys_start, n_pages, flags, __LINE__, __FILE__) 
+
+void display_relevant_tables(struct page_directory_struct *directory,  void *addr, unsigned int length);
 #endif

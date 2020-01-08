@@ -1,5 +1,40 @@
 #include "doubly_linked_list.h"
 
+// int find_list(struct list_info *list, LIST_TYPE elem);
+
+int default_getter(LIST_TYPE a, LIST_TYPE b){
+	return a == b;
+}
+
+int find_list_by(struct list_info *list, LIST_TYPE elem, int (*cmp_func)(LIST_TYPE a, LIST_TYPE b)){
+	if(list == NULL)
+		return NULL;
+	
+	int pos = 0;
+	struct lnode *t = list->head;
+	// while(t != NULL && t->value != elem){
+	while(t != NULL && cmp_func(elem, t->value)){
+		t = t->nextl;
+		pos++;
+	}
+
+	if(t != NULL)
+		return pos;
+	return -1;
+}
+
+int is_value_in_list(struct list_info *list, LIST_TYPE elem){
+	if(list == NULL)
+		return NULL;
+	
+	struct lnode *t = list->head;
+	while(t != NULL && t->value != elem){
+		t = t->nextl;
+	}
+
+	return t != NULL;
+}
+
 LIST_TYPE remove_item(struct list_info *list, LIST_TYPE elem){
 	if(list == NULL)
 		return NULL;

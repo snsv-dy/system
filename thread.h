@@ -6,6 +6,7 @@
 #include "util.h"	// CEIL
 #include "doubly_linked_list.h"
 #include <stdarg.h>
+#include "stdio.h"
 
 typedef struct{
 	unsigned int magic;							//	0
@@ -73,7 +74,7 @@ struct registers_struct{
 	unsigned int privl;	// to nie jest rejestr, ale jest używane w 
 };
 
-#define THREAD_STACK_SIZE (8192 * 1024)
+#define THREAD_STACK_SIZE (8192 * 1024 - 4096)
 #define MAX_THREADS 127	// 1GB / 8Mb - 1, -1 bo trzeba odjąć stos wątku głównego
 
 typedef struct thread_t_struct{
@@ -97,11 +98,17 @@ typedef struct thread_t_struct{
 	struct thread_t_struct **children;
 	unsigned int nchilds;
 	unsigned int children_capacity;
+
+	//rozszerzanie sterty
+	int stack_pages;
+	int max_stack_pages;
+	unsigned int stack_start;
 } thread_t;
 
 void display_state(proc_state *st);
 
 int init_stack(thread_t *thread, int thread_num);
+int enlarge_stack(thread_t *thread, unsigned int v_addr);
 unsigned int *return_int();
 void thread_start(thread_t *thread);
 int free_whole_program(struct page_directory_struct *directory);
@@ -111,6 +118,9 @@ struct registers_struct *switch_task(unsigned int saved_eip, unsigned int saved_
 void queue_thread(thread_t *t);
 void put_thread_to_sleep(thread_t *thread, int how_long);
 struct registers_struct *timer_handler(unsigned int esp, unsigned int eip);
+int has_thread_finished(int pid);
+int remove_thread_from_queues(thread_t *t);
+
 int get_next_pid();
 void save_registers(
 	unsigned int edi,
@@ -148,16 +158,28 @@ typedef struct {
 int push_spawn(spawn_t *t);
 void thread_spawner();
 void thread_killer();
+void wake_spawner();
+void wake_killer();
 
 int push_io(thread_t *t);
 thread_t *pop_io();
 
-// struktura semafora nienazwanego
+// struktura semafora
 typedef struct{
 	int counter;
 	int id;
 	char *name;
 } sem_t;
+
+typedef struct{
+	sem_t *params;
+	struct list_info *threads;	// wątki które otworzyły ten semafor
+	int num_threads;			// liczba wątków powiązanych z tym semaforem
+} named_sem;
+
+int sem_opener(sem_t *sem);
+int named_sem_wait(sem_t *sem);
+int named_sem_post(sem_t *sem);
 
 thread_t *get_waiting();
 int push_wait(thread_t *t);

@@ -39,6 +39,11 @@ LIST_TYPE pop_front(struct list_info *list);
 LIST_TYPE pop_back(struct list_info *list);
 LIST_TYPE remove_item_by_getter(struct list_info *list, int num);
 LIST_TYPE remove_item(struct list_info *list, LIST_TYPE elem);
+int is_value_in_list(struct list_info *list, LIST_TYPE elem);
+int find_list(struct list_info *list, LIST_TYPE elem); // zwraca na której pozycji w liście jest szukany element, lub -1 jeśli go nie ma
+int find_list_by(struct list_info *list, LIST_TYPE elem, int (*cmp_func)(LIST_TYPE a, LIST_TYPE b));
+int default_getter(LIST_TYPE a, LIST_TYPE b);
+#define find_list(list, a) find_list_by(list, a, default_getter)
 int enlarge_list(struct list_info *list);
 int destroy_list(struct list_info *list);
 

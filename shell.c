@@ -36,6 +36,7 @@ char in_buffer[IN_BUFFER_LENGTH];
 int in_buffer_pos;
 int input_interrupted; // czy podzczas wprowadzania danych, został wyświetlony jakiś inny tekst
 int in_read;	// czy bufor został odczytany przez program i może być wyczyszczony
+int in_buffer_display = 0;
 
 #define in_buffer_clear(){ \
 	in_buffer_pos = 0; \
@@ -55,7 +56,22 @@ int in_read;	// czy bufor został odczytany przez program i może być wyczyszcz
 
 char *term_buff(){
 	in_read = 1;
+	in_buffer_display = 0;
 	return in_buffer;
+}
+
+void term_function(int fn){
+	// switch(){
+
+	// }
+}
+
+void term_input_start(){
+	in_buffer_display = 1;
+	// if(input_interrupted && in_buffer[0] != '\n'){
+	// 	term_write(in_buffer);
+	// 	input_interrupted = 0;
+	// }
 }
 
 int term_keyboard_in(char c){
@@ -67,24 +83,26 @@ int term_keyboard_in(char c){
 	int end_of_input = 0; // czy został wciśnięty enter i można przekazać tekst programowi
 
 
-	if(input_interrupted){
+	if(in_buffer_display && input_interrupted){
 		term_write(in_buffer);
 	}
 	
 	if(c != '\b')
 		in_buffer_putc(c);
 
-	if(c == '\n'){
-		end_of_input = in_buffer_pos;
-		term_enter(1);
-	}else if(c == '\b'){
-		term_backspace();
-	}else{
-		term_putc(c, TERM_NOREFRESH);
-	}
+	if(in_buffer_display){
+		if(c == '\n'){
+			end_of_input = in_buffer_pos;
+			term_enter(1);
+		}else if(c == '\b'){
+			term_backspace();
+		}else{
+			term_putc(c, TERM_NOREFRESH);
+		}
 
-	term_draw();
-	input_interrupted = 0;
+		term_draw();
+		input_interrupted = 0;
+	}
 
 	return end_of_input;
 }
@@ -138,11 +156,11 @@ void dump_term(){
 	serial_write(" --- TERM END  ---");
 }
 
-unsigned int strlen(char *str){
-	unsigned int len = 0;
-	while(str[len]) len++;
-	return len;
-}
+// unsigned int strlen(char *str){
+// 	unsigned int len = 0;
+// 	while(str[len]) len++;
+// 	return len;
+// }
 
 void framebuffer_clear(){
 	for(int i = 0; i < framebuffer_height; i++)
@@ -163,7 +181,7 @@ void term_draw(){
 	int last_line = (term_end / TERM_WIDTH);
 	int line_end = term_end % TERM_WIDTH;
 	int bottom = last_line;//term_view_end / TERM_WIDTH;
-	if(line_end > SCREEN_HEIGHT - 1)
+	if(last_line > SCREEN_HEIGHT - 1 || term_full)
 		bottom = SCREEN_HEIGHT - 1;
 
 	framebuffer_move_cursor(bottom * TERM_WIDTH + line_end);
@@ -287,4 +305,133 @@ char isalpha(char c){
 
 char isnum(char c){
 	return c >= '0' && c <= '9'; 
+}
+
+char command_input[500];
+
+char *commands[] = {
+	"help",
+	"progl",
+	"start",
+	"block",
+	"threads",
+	"meminfo",
+	"seminfo"
+};
+
+int commands_len[] = {
+	4, 5, 5, 5, 7, 7, 7
+};
+
+char *help_str = "\
+-----\n\
+Help       - display help\n\
+progl      - list available programs\n\
+start [id] - start program with an specific id\n\
+block [ms] - block terminal for ms miliseconds (or one second if no ms is given).\n\
+threads    - display running threads and thier status\n\
+meminfo	   - display memory usage\n\
+seminfo    - display currently opened named semaphores\n\
+-----\n\
+";
+extern int fprintf(int dest, char *format, ...);
+#define printf(...) fprintf(0, __VA_ARGS__)
+
+char *progs_names[256] = {0};
+int progs_names_len = 0;
+void add_prog_name(char *name){
+	// if(n > 0){
+	// 	va_list lista;
+	// 	va_start(lista, n);
+
+	// 	for(int i = 0; i < n; i++){
+	// 		char *t = va_arg(lista, char *);
+	// 		progs_names[i] = t;
+	// 	}
+
+	// 	va_end(lista);
+	// }
+	if(progs_names_len < 256){
+		progs_names[progs_names_len++] = name;
+		printf("name set: %s\n", name);
+	}
+}
+
+extern int check_prog(int id);
+extern void display_thread_info();
+extern void display_sem_info();
+
+extern unsigned int free_memory;
+extern unsigned int total_memory;
+extern void *kernel_heap;
+
+void term_thread(){
+	while(1){
+		// printf(help_str);
+		printf("> ");
+		syscall_caller(SYSCALL_GETS, command_input);
+		if(!strncmp(command_input, commands[0], commands_len[0])){
+			printf(help_str);
+		}else if(!strncmp(command_input, commands[3], commands_len[3])){
+			int forl = atoi(command_input + commands_len[3]);
+			// printf("param: %d\n", forl);
+			if(forl > 0){
+				msleep(forl);
+			}else{
+				msleep(1000);
+			}
+		}else if(!strncmp(command_input, commands[4], commands_len[4])){
+			// printf("Threads currently in queue: \n");
+			display_thread_info();
+		}else if(!strncmp(command_input, commands[1], commands_len[1])){
+			printf("Available programs: \n[id], name\n");
+			for(int i = 0; i < progs_names_len; i++){
+				printf("[%d] %s\n", i, progs_names[i]);
+			}
+		}else if(!strncmp(command_input, commands[2], commands_len[2])){
+			char *space = strpbrk(command_input, " ");
+			if(space != NULL){
+				int err = 0;
+				int id = atoi_err(space, &err);
+				// printf("id: %d, check: %d, err: %d\n", id + 0, check_prog(id), err);
+
+				if(err != 0){
+					id = -1;
+
+					// sprawdzanie czy nie została wpisana nazwa
+					for(int i = 0; i < progs_names_len; i++){
+						char first_letter[2]; first_letter[0] = progs_names[i][0]; first_letter[1] = '\0';
+
+						char *name_start = strpbrk(space, first_letter);
+						if(name_start != NULL && !strncmp(name_start, progs_names[i], strlen(progs_names[i]))){
+							printf("it's %s\n", progs_names[i]);
+							id = i;
+							break;
+						}
+					}
+				}
+
+				if(id != -1){
+					int pid = syscall_caller(SYSCALL_START_PROCESS, id);
+					if(pid < 0)
+						printf("Couldn't start program\n");
+					// if(pid > 0)
+					// 	syscall_caller(SYSCALL_WAIT_FOR_FINISH, pid);
+					// else
+					// 	printf("Couldn't start program\n");
+				}else{
+					printf("Invalid program name/id.\n");
+				}
+			}else{
+				printf("Invalid argument.\n");
+			}
+		}else if(!strncmp(command_input, commands[5], commands_len[5])){
+			printf("used Kib,      pages\n");
+			printf("%d/%d, %d/%d\n", ((total_memory - free_memory) * 4096) / 1024, (total_memory * 4096) / 1024, (total_memory - free_memory), total_memory);
+			heap_block_count(kernel_heap, 0);
+			// printf("1/0: %d\n", 1/0);
+		}else if(!strncmp(command_input, commands[6], commands_len[6])){
+			display_sem_info();
+		}
+	}
 }

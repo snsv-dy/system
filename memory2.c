@@ -5,8 +5,9 @@
 void set_bit_in_bitmap(unsigned int *bitmap, unsigned int pos){
 	unsigned int j = pos % 32;
 	unsigned int i = pos / 32;
-
+	// srintf("Setting bitmap\n");
 	bitmap[i] |= 1 << j;
+	// srintf("Bitmap set\n");
 }
 
 void clear_bit_in_bitmap(unsigned int bitmap[], unsigned int pos){
@@ -66,6 +67,8 @@ int map_phys_to_virt(struct page_directory_struct *directory, unsigned int phys_
 
 
 	unsigned int *table = directory->directory_v[pde];
+	if(v_addr >= 0x40000000)
+		srintf("[MAP PHYS TO VIRT] table: %x\n", table);
 
 	if(table == NULL){
 
@@ -74,9 +77,15 @@ int map_phys_to_virt(struct page_directory_struct *directory, unsigned int phys_
 	}
 
 	unsigned int found = 0;
+	// srintf("[MAP PHYS TO VIRT] getting phys_Addr\n");
+	// srintf("[MAP PHYS TO VIRT] phys_Addr got: %x\n", table_phys_addr);
 	unsigned int table_phys_addr = get_phys_addr(&kernel_directory_struct, table, &found);
 
+	if(v_addr >= 0x40000000)
+		srintf("[MAP PHYS TO VIRT] table_phys_addr: %x\n", table_phys_addr);
+
 	if(!found){
+		srintf("[MAP PHYS TO VIRT] phys for table: %x(%d) not found\n", table, pde);
 		return 2;
 	}
 
@@ -84,6 +93,10 @@ int map_phys_to_virt(struct page_directory_struct *directory, unsigned int phys_
 
 	directory->directory_addr[pde] = table_phys_addr | PAGE_PRESENT_RW | flags;
 	table[pte] = phys_addr | PAGE_PRESENT_RW | flags;
+
+	if(v_addr >= 0x40000000)
+		srintf("[MAP PHYS TO VIRT] addr mapped\n");
+
 	return 0;
 }
 
@@ -110,7 +123,7 @@ int unmap_virt_addr(struct page_directory_struct *directory, unsigned int v_addr
 	return 0;
 }
 
-int alloc_tables_at(struct page_directory_struct *directory, int start, unsigned int n_tables){
+int alloc_tables_at_d(struct page_directory_struct *directory, int start, unsigned int n_tables, int line, char *file){
 	if(kernel_heap == NULL || start == -1 || n_tables == 0)
 		return 1;
 
@@ -131,28 +144,43 @@ int alloc_tables_at(struct page_directory_struct *directory, int start, unsigned
 		}
 	}
 
-	for(int i = 0; i < n_tables; i++)
+	for(int i = 0; i < n_tables; i++){
 		directory->directory_v[start + i] = &table_mem[1024 * i];
+		// int err = 0;
+		// unsigned int table_phys = get_phys_addr(directory, &table_mem[1024 * i], &err);
+		// if(err != 0){
+		// 	srintf("[ALLOC TABLES AT] get phys_error: %d, at: %x\n", err, &table_mem[1024 * i]);
+		// }else{
+		// 	directory->directory_addr[start + i] = table_phys;
+		// }
+	}
 
 	directory->num_tables += n_tables;
 
+	srintf("[ALLOC TABLES AT] start: %d, ntables: %d, at %s:%d\n", start, n_tables, file, line);
+
 	return 0;
 }
-int alloc_tables(struct page_directory_struct *directory, unsigned int n_tables){
-	if(kernel_heap == NULL)
+int alloc_tables_d(struct page_directory_struct *directory, unsigned int n_tables, int line, char *file){
+	srintf("[ALLOC TABLES] n_tables: %d, at %s:%d ", n_tables, file, line);
+	if(kernel_heap == NULL){
+		srintf(" failed: %d\n", 1);
 		return 1;
+	}
 
 	unsigned int tables_end = 0;
-	while(tables_end < 1024 && directory->directory_v[tables_end] != NULL) tables_end++;
+	while(tables_end < 1024 && directory->directory_v[tables_end] != 0) tables_end++;
 
 	if(tables_end + n_tables >= 1024)
 		n_tables = 1024 - tables_end;
 	// printf("[ALLOC TABLES] n_tables: %d, tables_end: %d\n", n_tables, tables_end);
-
+	srintf("\n\t");
 	unsigned int *table_mem = (unsigned int *)heap_malloc_page_aligned(kernel_heap, n_tables * 0x1000);
 	if(table_mem == NULL){
+		srintf(" failed: %d\n", 2);
 		return 2;
 	}
+	srintf("\t got mem: %x\n", table_mem);
 
 	for(int i = 0; i < n_tables; i++){
 		for(int j = 0; j < 1024; j++){
@@ -165,6 +193,7 @@ int alloc_tables(struct page_directory_struct *directory, unsigned int n_tables)
 
 	directory->num_tables += n_tables;
 
+	srintf(" succeded\n");
 	return 0;
 }
 
@@ -186,6 +215,9 @@ void *get_page_d(unsigned int n_pages, unsigned int map, unsigned int *error, in
 			set_bit_in_bitmap(memory_bitmap, j + i);
 		}
 
+		srintf("[GET PAGE] Unmapped page got: n: %d, start: %x, at %s:%d\n", n_pages, j * 0x1000, file, line);
+
+		free_memory -= n_pages;
 		return (void *)(j * 0x1000);
 	}
 
@@ -199,6 +231,7 @@ void *get_page_d(unsigned int n_pages, unsigned int map, unsigned int *error, in
 		return 0;
 	}
 
+	srintf("[GET PAGE] j = %d\n", j);
 	int res = map_pages(&kernel_directory_struct, (pte / 1024) << 22 | ((pte % 1024) << 12), j * 0x1000, n_pages, PAGE_PRESENT_RW);
 	if(res != 0){
 		printf("[GET PAGE] map pages res == %d\n", res);
@@ -255,12 +288,16 @@ void *get_page_d(unsigned int n_pages, unsigned int map, unsigned int *error, in
 
 	unsigned int v_addr = (pte / 1024) << 22 | ((pte % 1024) << 12);
 
+	srintf("[GET PAGE] Mapped page got: n: %d, start: %x, at %s:%d\n", n_pages, v_addr, file, line);
+
 	return (void *)v_addr;
 }
 
-int map_pages(struct page_directory_struct *directory, void *v_addr, unsigned int phys_start, unsigned int n_pages, unsigned int flags){
+// int map_pages(struct page_directory_struct *directory, void *v_addr, unsigned int phys_start, unsigned int n_pages, unsigned int flags){
+int map_pages_d(struct page_directory_struct *directory, void *v_addr, unsigned int phys_start, unsigned int n_pages, unsigned int flags, int line, char *file){
 	if(directory == NULL || n_pages == 0)
 		return 1;
+	srintf("[MAP PAGES D] mapping %x to %x len: %d, at %s:%d\n", phys_start, v_addr, n_pages, file, line);
 
 	unsigned int uaddr = v_addr;
 
@@ -285,22 +322,31 @@ int map_pages(struct page_directory_struct *directory, void *v_addr, unsigned in
 			}
 		}
 	}
+	srintf("[MAP PAGES] tables missing: %d, at: %d\n", tables_missing, tables_required);
 
 	// jeżeli brakuje tabel, to trzeba dodać więcej
 	// if(directory->num_tables < pde + tables_required){
 	if(missing_start != -1){
+		srintf("[MAP PAGES] allocing tables\n");
 		int res = alloc_tables_at(directory, missing_start, tables_missing);
+		// int res = alloc_tables(directory, tables_missing);
 		if(res != 0){
 			printf("[MAP PAGES] page not alloced: %d\n", res);
 			return 2;
 		}
+		srintf("[MAP PAGES] tables alloced\n");
 	}
 
 	unsigned int bit_p = phys_start / 0x1000;
-	unsigned int bit_v = (pde * 1024) + pte;
+	// unsigned int bit_v = (pde * 1024) + pte;
+	unsigned int bit_v = pte;
+	srintf("[MAP PAGES] mapping %d pages, starting at phys: %x, v: %x\n", n_pages, phys_start, v_addr);
+
 	for(int i = 0; i < n_pages; i++, bit_p++, bit_v++){
+		// srintf("[MAP PAGES] mapping: %d\n", i);
 		int map_res = map_phys_to_virt(directory, phys_start + i * 0x1000, uaddr + i * 0x1000, flags);
 		if(map_res != 0){
+			srintf("[MAP PAGES] phys to virt res: %d\n", map_res);
 			unmap_pages(directory, v_addr, i);
 
 			return 3;
@@ -308,7 +354,9 @@ int map_pages(struct page_directory_struct *directory, void *v_addr, unsigned in
 
 		// set_bit_in_bitmap(memory_bitmap, bit_p);
 		set_bit_in_bitmap(directory->v_bitmap, bit_v);
+		// srintf("[MAP PAGES] bit in bitmap set\n");
 	}
+	srintf("[MAP PAGES D] mapping at %s:%d succeded\n", file, line);
 
 	return 0;
 }
@@ -341,9 +389,12 @@ int unmap_pages(struct page_directory_struct *directory, void *v_addr, unsigned 
 	return 0;
 }
 
-int free_page(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages){
+// int free_page(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages)
+int free_page_d(struct page_directory_struct *directory, void *v_addr, unsigned int n_pages, int line, char *file){
 	if(directory == NULL || n_pages == 0 || directory->directory_addr == NULL || directory->directory_v == NULL || directory->v_bitmap == NULL)
 		return 1;
+
+	srintf("[FREE PAGE] freeing dir: %x, v_addr: %x, n_pages: %d, at %s:%d\n", directory, v_addr, n_pages, file, line);
 	// sprawdzanie czy szukane strony są zamapowane
 	unsigned int uaddr = v_addr;
 	unsigned int pde = uaddr >> 22;
@@ -374,6 +425,10 @@ int free_page(struct page_directory_struct *directory, void *v_addr, unsigned in
 	if(res != 0){
 		return 3;
 	}
+
+	free_memory += n_pages;
+
+	srintf("[FREE PAGE] n_pages: %d, at %s:%d\n", n_pages, file, line);
 
 	return 0;
 }
@@ -418,6 +473,8 @@ int free_page(struct page_directory_struct *directory, void *v_addr, unsigned in
 
 // void deb(){}
 
+
+
 #define KERNEL_HEAP_PAGES 100
 
 int initialize_memory(unsigned int kernel_start, unsigned int kernel_end, multiboot_memory_map *mmap_addr, unsigned int mmap_length){
@@ -433,6 +490,7 @@ int initialize_memory(unsigned int kernel_start, unsigned int kernel_end, multib
 	unsigned int last_kernel_page = CEIL(kernel_end, 0x1000);
 	// printf("Last kernel page: %d\n", last_kernel_page);
 	total_memory += last_kernel_page;
+	printf("free_memory: %d, total_memory: %d\n", free_memory, total_memory);
 
 	// mapowanie kernela do katalogu stron
 	kernel_directory[0] = (unsigned int)kernel_page1 | 3;
@@ -476,6 +534,7 @@ int initialize_memory(unsigned int kernel_start, unsigned int kernel_end, multib
 	total_memory += free_memory;
 
 	// inicjowanie listy tabeli stron i struktury katalogu kernela
+	kernel_directory_struct.directory_phys_addr = kernel_directory;
 	kernel_directory_struct.directory_addr = kernel_directory;
 	kernel_directory_struct.directory_v = kernel_directory_v;
 	kernel_directory_struct.num_tables = 1;
@@ -519,11 +578,11 @@ int initialize_memory(unsigned int kernel_start, unsigned int kernel_end, multib
 	// printf("[ - DEBG - ] last_kernel_page: %d, kend: %x\n", last_kernel_page, kernel_end);
 
 	// alloc_tables(&kernel_directory_struct, 1020);
-	enlarge_heap(kernel_heap, 512 * 0x1000);
+	// enlarge_heap(kernel_heap, 512 * 0x1000);
 	// heap_all_info_c(kernel_heap);
 
 	// kernel nie powinien mieć więcej niż 1GB, więc wydaje mi się, że tyle tabel mu wystarczy
-	alloc_tables(&kernel_directory_struct, 256 - 3);
+	// alloc_tables(&kernel_directory_struct, 256 - 3);
 	
 	printf("Memory initiated\n");
 
@@ -570,6 +629,35 @@ unsigned int find_block_in_bitmap(unsigned int *bitmap, unsigned int bit_length,
 	
 	// printf("[FIND_BLOCK] start: %d, bit_length: %d\n", start, bit_length);
 	return start;
+}
+
+// pokazuje zawartość tabel w katalogu dla danego bloku pamięci
+void display_relevant_tables(struct page_directory_struct *directory,  void *addr, unsigned int length){
+	if(addr != NULL && directory != NULL){
+		unsigned int uaddr = (unsigned int)addr;
+		unsigned int pde = uaddr >> 22;
+		unsigned int pte = (uaddr >> 12) & 0x3FF;
+		unsigned int end = uaddr + length;
+		srintf("Displaying tables for %x - %x\n", uaddr, end);
+		while(uaddr < end){
+			if(pte >= 1024){
+				pde++;
+				pte = 0;
+			}
+
+			unsigned int table_val = 0;
+			if(directory->directory_v[pde] != 0){
+				table_val = ((unsigned int *)directory->directory_v[pde])[pte];
+				srintf("[%d][%d] %x\n", pde, pte, table_val);
+			}else{
+				srintf("[%d] table == NULL\n", pde);
+			}
+
+
+			pte++;
+			uaddr += 0x1000;
+		}
+	}
 }
 
 

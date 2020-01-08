@@ -4,8 +4,8 @@
 #include "io.h"
 #include "shell.h"
 #include "memory2.h"
-#include "stdio.h"
 #include "thread.h"
+#include "stdio.h"
 
 // GDT part
 #define GDT_RING3_CODE_SELECTOR 24
@@ -18,7 +18,7 @@ void tss_flush();
 // 	unsigned short limit_low;
 // 	unsigned short base_low;
 // 	unsigned char base_middle;
-// 	unsigned char access;
+// 	unsigned char access; 
 // 	unsigned char granularity;
 // 	unsigned char base_high;
 // } __attribute__((packed));
@@ -99,7 +99,7 @@ extern int load_idt();
 extern int irqdefm();
 extern int irq1();
 extern int irqdefs();
-extern int page_except();
+extern int page_fault();
 extern int double_fault();
 extern int syscall();
 extern int gpf(); // general protection fault
@@ -117,8 +117,8 @@ void irqmaster_handler();
 void irq1_handler();
 void irqslave_handler();
 extern struct registers_struct *timer_handler(unsigned int esp, unsigned int eip);
-void page_except_handler(unsigned int vaddr, unsigned int err);
-void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int prog_esp, unsigned int esp, unsigned int eip);
+void *page_fault_handler(unsigned int vaddr, unsigned int err, unsigned int esp, unsigned int eip);
+void *syscall_handler(unsigned int param1, unsigned int param2, unsigned int esp, unsigned int eip);
 
 void init_key_map();
 

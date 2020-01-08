@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "io.h"
+#include "util.h"
 
 #define FB_COMMAND_PORT	0x3D4
 #define FB_DATA_PORT	0x3D5
@@ -21,7 +22,7 @@ int framebuffer_y;
 
 void framebuffer_charAt(unsigned char c, int x, int y);
 void framebuffer_init();
-unsigned int strlen(char *str);
+// unsigned int strlen(char *str);
 void framebuffer_clear();
 void newline();
 
@@ -72,6 +73,9 @@ char tolower(const char c);
 char toupper(const char c);
 char isalpha(const char c);
 char isnum(char c);
+
+void add_prog_name(char *name);
+void term_thread();
 
 
 #endif
