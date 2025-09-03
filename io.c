@@ -22,7 +22,10 @@ int is_transmit_empty(){
 
 void serial_putc(const char c){
 	while(is_transmit_empty() == 0);
-
+	if (c == '\n')
+	{
+		outb(SERIAL_DATA_PORT(SERIAL_COM1_BASE), '\r');
+	}
 	outb(SERIAL_DATA_PORT(SERIAL_COM1_BASE), c);
 }
 

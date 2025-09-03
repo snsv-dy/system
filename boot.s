@@ -4,21 +4,29 @@ extern kernel_main
 extern _kernel_start
 extern _kernel_end
 
+MBALIGN   equ  1<<0				; to mówi loaderowi, żeby zrobił strukturę mapy pamięci
 MEMINFO	 equ  1<<1				; to mówi loaderowi, żeby zrobił strukturę mapy pamięci
-FLAGS    equ  MEMINFO			; this is the Multiboot 'flag' field
+MBFLAGS    equ  MBALIGN | MEMINFO	; this is the Multiboot 'flag' field
 MAGIC    equ  0x1BADB002        ; 'magic number' lets bootloader find the header
-CHECKSUM equ -(MAGIC + FLAGS)   ; checksum of above, to prove we are multiboot
+CHECKSUM equ -(MAGIC + MBFLAGS)   ; checksum of above, to prove we are multiboot
 
 KERNEL_STACK_SIZE equ 16384		; rozmiar stacku kernela
 
-section .text
+section .multiboot
 	align 4
 	dd MAGIC
-	dd FLAGS
+	dd MBFLAGS
 	dd CHECKSUM
 
+section .bss
+align 16
+stack_bottom:
+	resb KERNEL_STACK_SIZE
+stack_top:
+
+section .text
 loader:	
-	mov esp, kernel_stack + KERNEL_STACK_SIZE	; wstawienie do esp, ostatniego adresu pamięci stosu
+	mov esp, stack_top	; wstawienie do esp, ostatniego adresu pamięci stosu
 	
 	push eax				; flaga MAGIC
 	push ebx				; adres struktury multiboot info
@@ -31,8 +39,3 @@ loader:
 .loop:
 	hlt
 	jmp .loop
-
-section .bss
-align 4096
-kernel_stack:
-	resb KERNEL_STACK_SIZE

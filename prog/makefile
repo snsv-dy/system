@@ -1,4 +1,4 @@
-PREFIX=~/pyts/sys/cross/bin
+PREFIX=~/programs/cross/bin
 TARGET=i686-elf
 
 CC=$(PREFIX)/$(TARGET)-gcc

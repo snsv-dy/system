@@ -235,6 +235,8 @@ void *get_page_d(unsigned int n_pages, unsigned int map, unsigned int *error, in
 	int res = map_pages(&kernel_directory_struct, (pte / 1024) << 22 | ((pte % 1024) << 12), j * 0x1000, n_pages, PAGE_PRESENT_RW);
 	if(res != 0){
 		printf("[GET PAGE] map pages res == %d\n", res);
+	}else {
+		srintf("[GET PAGE] Got\n");
 	}
 
 
@@ -295,6 +297,7 @@ void *get_page_d(unsigned int n_pages, unsigned int map, unsigned int *error, in
 
 // int map_pages(struct page_directory_struct *directory, void *v_addr, unsigned int phys_start, unsigned int n_pages, unsigned int flags){
 int map_pages_d(struct page_directory_struct *directory, void *v_addr, unsigned int phys_start, unsigned int n_pages, unsigned int flags, int line, char *file){
+	srintf("[MAP PAGES D] beg\n");
 	if(directory == NULL || n_pages == 0)
 		return 1;
 	srintf("[MAP PAGES D] mapping %x to %x len: %d, at %s:%d\n", phys_start, v_addr, n_pages, file, line);

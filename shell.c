@@ -1,4 +1,5 @@
 #include "shell.h"
+#include "io.h"
 
 #define FB_COMMAND_PORT	0x3D4
 #define FB_DATA_PORT	0x3D5
@@ -13,7 +14,15 @@ void framebuffer_move_cursor(unsigned short pos){
 	outb(FB_DATA_PORT, pos & 0x00FF);
 }
 
-uint16_t *framebuffer; 
+int terminal_begin;
+int terminal_end;
+int terminal_full;
+int terminal_input_lenght;
+
+int current_line;
+int current_char;
+
+static volatile uint16_t *framebuffer;
 char framebuffer_color;
 int framebuffer_width;
 int framebuffer_height;
@@ -113,17 +122,14 @@ void framebuffer_charAt(unsigned char c, int x, int y){
 		x = 0;
 	if(y > framebuffer_height)
 		y = 0;
-
 	int pos = ( (y * framebuffer_width) + x);
-	// framebuffer[pos] = (c << 8) | framebuffer_color;
-	framebuffer[pos] = c | (framebuffer_color << 8);
+
+	framebuffer[pos] = c | (uint16_t) framebuffer_color << 8;
 }
 
 void framebuffer_init(){
-	// framebuffer = (uint16_t *)0xC00B8000;
-	framebuffer = (uint16_t *)0x000B8000;
-	// framebuffer_color = 8<<4 | 15;
-	framebuffer_color = 15;
+	framebuffer = (uint16_t *)0xB8000;
+	framebuffer_color = 14 | (8 << 4);
 	framebuffer_width = 80;
 	framebuffer_height = 25;
 	framebuffer_x = 0;
@@ -133,6 +139,13 @@ void framebuffer_init(){
 	terminal_end = 0;
 	terminal_full = 0;
 	terminal_input_lenght = 0;
+	
+	// Not sure if fb related
+	term_view_beg = 0;
+	term_view_end = SCREEN_HEIGHT - 1;
+	term_end = 0;
+	term_full = 0;
+	//
 
 	in_buffer_pos = 0;
 	in_buffer[0] = '\0';
@@ -141,16 +154,34 @@ void framebuffer_init(){
 
 	current_line = 0;
 	current_char = 0;
-	for(int i = 0; i < TERMINAL_HEIGHT; i++)
-		for(int j = 0; j < SCREEN_WIDTH; j++)
-			TERM_AT(j, i) = ' ';
+	// for(int i = 0; i < TERMINAL_HEIGHT; i++)
+	// {
+	// 	for(int j = 0; j < SCREEN_WIDTH; j++)
+	// 	{
+	// 		TERM_AT(j, i) = ' ';
+	// 	}
+	// }
 
+	char* tstr = "JacekStasiak";
+	int tstrlen = 12;
+
+	for(int i = 0; i < TERM_HEIGHT; i++)
+	{
+		for(int j = 0; j < SCREEN_WIDTH; j++)
+		{
+			// TERM_AT(j, i) = ' ';
+			int pos = i * SCREEN_WIDTH + j;
+			// term_data[pos] = tstr[pos % tstrlen];
+			term_data[pos] = ' ';
+		}
+	}
+	term_data[term_size-1] = '\0';
 	term_draw();
 }
 
 void dump_term(){
 	serial_write(" --- TERM DATA ---");
-	for(int i = 0; i < TERMINAL_HEIGHT; i++)
+	for(int i = 0; i < TERM_HEIGHT; i++)
 		for(int j = 0; j < SCREEN_WIDTH; j++)
 			TERM_AT(j, i) = ' ';
 	serial_write(" --- TERM END  ---");
@@ -169,12 +200,24 @@ void framebuffer_clear(){
 }
 
 void term_draw(){
+	// serial_write("term data");
+	// serial_write(term_data);
+	// uint16_t* framebuffer = (uint16_t *)0xB8000;
+	uint16_t color = 14 | (8 << 4);
+	// char* str = "Jacek Stasiak";
+	// for (int i = 0; str[i]; i++)
+	// {
+	// 	framebuffer[i] = (uint16_t) str[i] | (uint16_t) color << 8;
+	// }
 	for(int i = term_view_beg, c = 0; c < SCREEN_HEIGHT; i++, c++){
 		if( i >= TERM_HEIGHT)
 			i = 0;
 
 		for(int j = 0; j < TERM_WIDTH; j++){
 			framebuffer_charAt(TERM_AT(j, i), j, c);
+			// framebuffer[c * SCREEN_WIDTH + j] = (uint16_t) term_data[i * SCREEN_WIDTH + j] | (uint16_t) color << 8;
+			// framebuffer[c * SCREEN_WIDTH + j] = (uint16_t) TERM_AT(j, i) | (uint16_t) framebuffer_color << 8;
+			// framebuffer_charAt(term_data[i * SCREEN_WIDTH + j], j, c);
 		}
 	}
 

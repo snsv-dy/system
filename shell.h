@@ -13,12 +13,12 @@
 
 void framebuffer_move_cursor(unsigned short pos);
 
-uint16_t *framebuffer; 
-char framebuffer_color;
-int framebuffer_width;
-int framebuffer_height;
-int framebuffer_x;
-int framebuffer_y;
+// uint16_t *framebuffer; 
+// char framebuffer_color;
+// int framebuffer_width;
+// int framebuffer_height;
+// int framebuffer_x;
+// int framebuffer_y;
 
 void framebuffer_charAt(unsigned char c, int x, int y);
 void framebuffer_init();
@@ -31,15 +31,7 @@ void newline();
 
 #define TERM_WIDTH SCREEN_WIDTH
 #define TERM_HEIGHT 30
-#define TERMINAL_HEIGHT 50
 
-int terminal_begin;
-int terminal_end;
-int terminal_full;
-int terminal_input_lenght;
-
-int current_line;
-int current_char;
 int terminal_sanity_check();
 void terminal_input_from_keyboard();
 

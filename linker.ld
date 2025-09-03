@@ -9,7 +9,7 @@ SECTIONS
 	/* Begin putting sections at 1 MiB, a conventional place for kernels to be
 	   loaded at by the bootloader. */
 	/*. = 0xC0100000;*/
-	. = 0x00100000;
+	. = 2M;
 	_kernel_start = .;
  
 	/* First put the multiboot header, as it is required to be put very early
@@ -17,28 +17,29 @@ SECTIONS
 	   Next we'll put the .text section. */
 	
 	/*.text ALIGN(0x1000) : AT(ADDR(.text) - 0xC0000000)*/
-	.text ALIGN(0x1000) :
+	.text BLOCK(4K) : ALIGN(4K)
 	{
+		*(.multiboot)
 		*(.text)
 	}
  
 	/* Read-only data. */
 	/*.rodata ALIGN(0x1000) : AT(ADDR(.rodata) - 0xC0000000)*/
-	.rodata ALIGN(0x1000) :
+	.rodata BLOCK(4K) : ALIGN(4K)
 	{
 		*(.rodata*)
 	}
  
 	/* Read-write data (initialized) */
 	/*.data ALIGN(0x1000) : AT(ADDR(.data) - 0xC0000000)*/
-	.data ALIGN(0x1000) :
+	.data BLOCK(4K) : ALIGN(4K)
 	{
 		*(.data)
 	}
  
 	/* Read-write data (uninitialized) and stack */
 	/*.bss ALIGN(0x1000) : AT(ADDR(.bss) - 0xC0000000)*/
-	.bss ALIGN(0x1000) :
+	.data BLOCK(4K) : ALIGN(4K)
 	{
 		*(COMMON)
 		*(.bss)

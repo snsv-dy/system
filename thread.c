@@ -41,7 +41,7 @@ struct list_info *semaphores = NULL;
 thread_t *get_waiting(int id){ return remove_item_by_getter(wait_queue, id); }
 int push_wait(thread_t *t) { return push_back(wait_queue, t); }
 
-thread_t *pop_io(){ return pop_front(io_queue); }
+thread_t *pop_io(){ return pop_back(io_queue); }
 int push_io(thread_t *t) { return push_back(io_queue, t); }
 
 unsigned int switching_go = 0;

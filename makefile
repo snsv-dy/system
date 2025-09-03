@@ -1,10 +1,12 @@
-PREFIX=~/pyts/sys/cross/bin
+PREFIX=~/programs/cross/bin
 TARGET=i686-elf
 
 CC=$(PREFIX)/$(TARGET)-gcc
+# CC=/usr/bin/gcc
 CFLAGS=-std=gnu99 -ffreestanding -Wall -Wextra -O2 -g
 
 AS=nasm
+# AS=$(PREFIX)/$(TARGET)-as
 AFLAGS=-felf32 -g -F dwarf
 
 OBJ=objs
@@ -13,17 +15,18 @@ LARGS=-ffreestanding -O2 -nostdlib -lgcc -g
 
 OSDIR=isodir/boot/
 
-myos.iso: myos.bin isodir
+.PHONY: clean start
+
+myos.iso: myos.bin
+	mkdir -p isodir/boot/grub
+	cp myos.bin isodir/boot/myos.bin
+	cp grub.cfg isodir/boot/grub/grub.cfg
 	grub-mkrescue -o myos.iso isodir
 
-isodir: 
-	mkdir isodir 
-
-myos.bin: boot.o kernel.o io.o gdt.o shell.o stdio.o memory2.o heap.o util.o thread.o doubly_linked_list.o
+myos.bin: linker.ld boot.o kernel.o io.o gdt.o shell.o stdio.o memory2.o heap.o util.o thread.o doubly_linked_list.o
 	$(CC) -T $(LINK) $(LARGS) -o myos.bin boot.o io.o stdio.o kernel.o gdt.o shell.o memory2.o heap.o util.o thread.o doubly_linked_list.o
 	$(PREFIX)/$(TARGET)-objcopy --only-keep-debug myos.bin myos.sym
 	$(PREFIX)/$(TARGET)-objcopy --strip-debug myos.bin
-	cp myos.bin $(OSDIR)/myos.bin
 
 util.o: util.c util.h
 	$(CC) $(CFLAGS) -o util.o -c util.c	
@@ -62,3 +65,11 @@ thread.o: thread.c thread.h
 
 doubly_linked_list.o: doubly_linked_list.h doubly_linked_list.c
 	$(CC) $(CFLAGS) -o doubly_linked_list.o -c doubly_linked_list.c	
+
+clean:
+	rm *.o *.iso *.bin
+	rm -r isodir
+
+start: myos.iso
+	qemu-system-i386 -cdrom myos.iso -serial stdio
+

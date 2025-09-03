@@ -199,7 +199,6 @@ int fprintf(int dest, char *format, ...){
 				break;
 			}
 		}else if(c =='\n' && dest == PRINTF_TERM){
-			// serial_write("newline char\n");
 			term_enter(0);
 		}else{
 			dest_putc(dest, c, TERM_NOREFRESH);
